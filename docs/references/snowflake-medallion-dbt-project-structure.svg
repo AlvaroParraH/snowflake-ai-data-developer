@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="2040" viewBox="0 0 1440 2040" role="img" aria-labelledby="title description">
+  <title id="title">Snowflake project structure: medallion architecture and dbt</title>
+  <desc id="description">An illustrative project tree grouping ingestion/bronze, dbt/models/silver and gold, and orchestration/airflow/dags under pipelines. Airflow DAGs coordinate ingestion and dbt. Source data lands in Bronze before dbt refines it into Silver and Gold. Folder names do not prescribe Snowflake database or schema boundaries.</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; fill: #152c45; }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 19px; }
+      .heading { font-size: 24px; font-weight: 700; }
+      .body { font-size: 21px; }
+      .small { font-size: 18px; fill: #53677b; }
+      .branch { stroke: #bac7d4; stroke-width: 2; fill: none; }
+      .connector { stroke: #a0afbf; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#a0afbf" stroke-width="1.5"/></marker>
+  </defs>
+  <rect width="1440" height="2040" fill="#f5f8fc"/>
+  <rect x="0" y="0" width="1440" height="205" fill="#102a43"/>
+  <text x="64" y="56" style="fill:#81d9ec;font-size:18px;font-weight:700;letter-spacing:3px">SNOWFLAKE DATA ENGINEERING</text>
+  <text x="64" y="112" style="fill:#fff;font-size:43px;font-weight:800">MEDALLION + dbt</text>
+  <text x="64" y="158" style="fill:#d5e3ef;font-size:26px">One project layout. Clear data responsibilities.</text>
+  <rect x="1080" y="77" width="292" height="46" rx="23" fill="#25445f"/>
+  <text x="1226" y="106" text-anchor="middle" style="fill:#fff;font-size:17px;font-weight:700">AGREED PROJECT LAYOUT</text>
+
+  <text x="64" y="252" class="small" style="font-weight:700;letter-spacing:2px">DATA FLOW / RESPONSIBILITIES</text>
+  <rect x="64" y="277" width="242" height="104" rx="12" fill="#e5edf5" stroke="#b5c7d8"/>
+  <text x="84" y="313" class="heading">Sources</text>
+  <text x="84" y="348" class="small">Files, APIs, CDC, events</text>
+  <path d="M318 329 H351" class="connector"/>
+  <rect x="368" y="277" width="302" height="104" rx="12" fill="#fcf0e5" stroke="#bf8041"/>
+  <text x="388" y="313" class="heading" style="fill:#8b511b">BRONZE / preserve</text>
+  <text x="388" y="348" class="small">Received data + provenance</text>
+  <path d="M682 329 H715" class="connector"/>
+  <rect x="732" y="277" width="302" height="104" rx="12" fill="#e9eef5" stroke="#8999ad"/>
+  <text x="752" y="313" class="heading">SILVER / refine</text>
+  <text x="752" y="348" class="small">Types, keys, dedup, quality</text>
+  <path d="M1046 329 H1079" class="connector"/>
+  <rect x="1096" y="277" width="280" height="104" rx="12" fill="#fff5d5" stroke="#c29a32"/>
+  <text x="1116" y="313" class="heading" style="fill:#805e0c">GOLD / publish</text>
+  <text x="1116" y="348" class="small">Facts, dimensions, metrics</text>
+
+  <text x="64" y="439" class="small" style="font-weight:700;letter-spacing:2px">ADOPTED REPOSITORY CONVENTION</text>
+  <text x="738" y="439" class="small" style="font-weight:700;letter-spacing:2px">WHAT BELONGS HERE</text>
+  <text x="65" y="482" class="mono" style="font-size:24px;font-weight:700">snowflake-data-project/</text>
+  <path d="M79 499 V1622 M79 520 H105 M79 551 H105 M79 582 H105 M79 613 H105 M79 644 H105 M79 1307 H105 M79 1462 H105 M79 1622 H105 M131 664 V1152 M131 676 H157 M131 807 H157 M131 1152 H157" class="branch"/>
+  <text x="116" y="527" class="mono">README.md</text>
+  <text x="116" y="558" class="mono">.env.example</text>
+  <text x="116" y="589" class="mono">.gitignore</text>
+  <text x="116" y="620" class="mono">pyproject.toml</text>
+  <path d="M495 554 H704" class="connector"/>
+  <rect x="738" y="482" width="638" height="151" rx="12" fill="#e9f0f8" stroke="#b7c9db"/>
+  <text x="762" y="519" class="heading">Project setup + operating context</text>
+  <text x="762" y="554" class="body">Architecture, setup, owners, freshness and recovery.</text>
+  <text x="762" y="584" class="body">Pin dependencies; commit placeholders, not secrets.</text>
+  <text x="762" y="614" class="small">Local orchestration containers are optional, not required.</text>
+
+  <text x="116" y="651" class="mono" style="font-weight:700">pipelines/</text>
+  <text x="168" y="683" class="mono" style="font-weight:700;fill:#99561d">ingestion/</text>
+  <path d="M183 696 V703 M183 703 H211 M235 722 V757 M235 730 H263 M235 757 H263" class="branch"/>
+  <text x="222" y="710" class="mono" style="font-weight:700;fill:#99561d">bronze/</text>
+  <text x="274" y="737" class="mono">api_extractor.py</text>
+  <text x="274" y="764" class="mono">load_files.sql</text>
+  <path d="M495 704 H704" class="connector"/>
+  <rect x="738" y="650" width="638" height="122" rx="12" fill="#fcf0e5" stroke="#d6b28d"/>
+  <text x="762" y="686" class="heading" style="fill:#8b511b">Land data in BRONZE</text>
+  <text x="762" y="721" class="body">Select COPY, Snowpipe, Streaming or a connector.</text>
+  <text x="762" y="751" class="body">Preserve provenance; define replay and retry behavior.</text>
+
+  <g transform="translate(52 0)">
+  <text x="116" y="814" class="mono" style="font-weight:700;fill:#bd4937">dbt/</text>
+  <path d="M131 827 V1109 M131 839 H159 M131 866 H159 M131 893 H159 M131 1055 H159 M131 1082 H159 M131 1109 H159 M183 906 V1001 M183 920 H211 M183 1001 H211 M235 933 V974 M235 947 H263 M235 974 H263 M235 1014 V1028 M235 1028 H263" class="branch"/>
+  <text x="170" y="846" class="mono">dbt_project.yml</text>
+  <text x="170" y="873" class="mono">packages.yml</text>
+  <text x="170" y="900" class="mono">models/</text>
+  <text x="222" y="927" class="mono" style="font-weight:700;fill:#52667f">silver/</text>
+  <text x="274" y="954" class="mono">staging/sales/</text>
+  <text x="274" y="981" class="mono">intermediate/sales/</text>
+  <text x="222" y="1008" class="mono" style="font-weight:700;fill:#805e0c">gold/</text>
+  <text x="274" y="1035" class="mono">marts/sales/</text>
+  <text x="170" y="1062" class="mono">tests/</text>
+  <text x="170" y="1089" class="mono">macros/</text>
+  <text x="170" y="1116" class="mono">snapshots/</text>
+  </g>
+  <path d="M550 950 H704" class="connector"/>
+  <rect x="738" y="790" width="638" height="324" rx="12" fill="#fff0ec" stroke="#e4b3a9"/>
+  <text x="762" y="827" class="heading" style="fill:#b24331">dbt transformations / SILVER to GOLD</text>
+  <text x="762" y="864" class="body">silver/staging: typing; _sources.yml + stg_*.sql.</text>
+  <text x="762" y="897" class="body">silver/intermediate: dedup, joins; int_*.sql.</text>
+  <text x="762" y="930" class="body">gold/marts: facts + dimensions; fct_*.sql, dim_*.sql.</text>
+  <path d="M762 953 H1352" stroke="#e4b3a9"/>
+  <text x="762" y="984" class="body">source() reads declared inputs; ref() links models.</text>
+  <text x="762" y="1017" class="body">Configure model defaults under silver/ and gold/.</text>
+  <text x="762" y="1055" class="small" style="font-weight:700;fill:#a03f30">Staging is NOT Bronze ingestion.</text>
+  <text x="762" y="1084" class="small">Layer alignment is a project choice, not a dbt rule.</text>
+
+  <text x="168" y="1159" class="mono" style="font-weight:700;fill:#14765d">orchestration/</text>
+  <path d="M183 1172 V1178 M183 1178 H211 M235 1198 V1256 M235 1204 H263 M235 1256 H263 M287 1224 V1230 M287 1230 H315" class="branch"/>
+  <text x="222" y="1185" class="mono">airflow/</text>
+  <text x="274" y="1211" class="mono" style="font-weight:700;fill:#14765d">dags/</text>
+  <text x="326" y="1237" class="mono">sales_pipeline.py</text>
+  <text x="274" y="1263" class="mono">requirements.txt</text>
+  <path d="M550 1194 H704" class="connector"/>
+  <rect x="738" y="1132" width="638" height="137" rx="12" fill="#e7f5ee" stroke="#99c6b1"/>
+  <text x="762" y="1169" class="heading" style="fill:#11644e">Airflow DAGs / schedule and recover</text>
+  <text x="762" y="1204" class="body">Load Bronze, check readiness, build Silver then Gold.</text>
+  <text x="762" y="1234" class="body">Configure dags_folder or mount at /opt/airflow/dags.</text>
+  <text x="762" y="1258" class="small">Workers also need ingestion code, dbt and dependencies.</text>
+
+  <text x="116" y="1314" class="mono" style="font-weight:700;fill:#007f99">tests/</text>
+  <path d="M131 1327 V1390 M131 1349 H159 M131 1380 H159" class="branch"/>
+  <text x="170" y="1356" class="mono">test_ingestion.py</text>
+  <text x="170" y="1387" class="mono">test_sales_dag.py</text>
+  <path d="M495 1349 H704" class="connector"/>
+  <rect x="738" y="1287" width="638" height="137" rx="12" fill="#e6f5fa" stroke="#9cc6d5"/>
+  <text x="762" y="1324" class="heading" style="fill:#006b81">Quality at every boundary</text>
+  <text x="762" y="1359" class="body">Test ingestion, recovery and DAG imports/dependencies.</text>
+  <text x="762" y="1389" class="body">dbt tests: keys, nulls, domains and relationships.</text>
+  <text x="762" y="1413" class="small">Check freshness and reconciliation; fail visibly.</text>
+
+  <text x="116" y="1469" class="mono" style="font-weight:700;fill:#7346a7">infra/</text>
+  <path d="M131 1482 V1545 M131 1504 H159 M131 1535 H159" class="branch"/>
+  <text x="170" y="1511" class="mono">README.md</text>
+  <text x="170" y="1542" class="mono">&lt;approved-IaC-definitions&gt;</text>
+  <path d="M550 1504 H704" class="connector"/>
+  <rect x="738" y="1442" width="638" height="137" rx="12" fill="#f0eafa" stroke="#c0addb"/>
+  <text x="762" y="1479" class="heading" style="fill:#68409a">Access, compute and environment boundaries</text>
+  <text x="762" y="1514" class="body">Version approved resource and permission definitions.</text>
+  <text x="762" y="1544" class="body">Parameterize targets; review grants and compute cost.</text>
+  <text x="762" y="1568" class="small">Folder names do not prescribe databases or schemas.</text>
+
+  <text x="116" y="1629" class="mono" style="font-weight:700">.github/workflows/</text>
+  <path d="M131 1642 V1705 M131 1664 H159 M131 1695 H159" class="branch"/>
+  <text x="170" y="1671" class="mono">ci.yml</text>
+  <text x="170" y="1702" class="mono">deploy.yml</text>
+  <path d="M495 1664 H704" class="connector"/>
+  <rect x="738" y="1597" width="638" height="137" rx="12" fill="#e9eef4" stroke="#b1c0ce"/>
+  <text x="762" y="1634" class="heading">Validate, review and promote</text>
+  <text x="762" y="1669" class="body">Parse, test code and run scoped dbt builds when authorized.</text>
+  <text x="762" y="1699" class="body">Protect production writes with roles and approvals.</text>
+  <text x="762" y="1723" class="small">Keep credentials outside the repository.</text>
+
+  <rect x="64" y="1780" width="1312" height="162" rx="14" fill="#102a43"/>
+  <text x="90" y="1820" style="fill:#fff;font-size:23px;font-weight:700">Design principles from the existing skills</text>
+  <text x="90" y="1858" style="fill:#d5e3ef;font-size:21px">Medallion describes data responsibilities. dbt folders organize transformation code.</text>
+  <text x="90" y="1891" style="fill:#d5e3ef;font-size:21px">Choose materializations, names and environments for the workload; preserve existing conventions.</text>
+  <text x="90" y="1924" style="fill:#81d9ec;font-size:19px">Preserved by snowflake-project-structure. No application scaffolded or deployed.</text>
+  <text x="64" y="1990" class="small">Based on: snowflake-medallion-architecture + snowflake-dbt-integration</text>
+  <text x="1376" y="1990" class="small" text-anchor="end">Snowflake AI Data Developer</text>
+</svg>
