@@ -19,13 +19,25 @@ conventions and approved environment/database/schema design take precedence.
 ## Version and setup
 
 Pin compatible dbt Core and `dbt-snowflake` versions using the project's
-dependency lock mechanism. Confirm the adapter's supported Python/dbt versions
-and Snowflake configuration before upgrading or adopting adapter-specific
-materializations. Snowflake-specific options and dbt behavior can vary between
-adapter versions.
+dependency lock mechanism. For new Python pipeline projects following this
+kit, use `uv` with `pyproject.toml` and a committed `uv.lock`; add the adapter
+to the correct project with `uv add`, then invoke dbt through `uv run dbt`.
+For example:
 
-Install and initialize only when setting up a project, using the version and
-installation method chosen by that project:
+```bash
+uv add "dbt-snowflake==<approved_version>"
+uv run dbt --version
+```
+
+Confirm the adapter's supported Python/dbt versions and Snowflake
+configuration before upgrading or adopting adapter-specific materializations.
+Snowflake-specific options and dbt behavior can vary between adapter versions.
+Existing projects should retain their current dependency manager unless the
+owner approves a migration.
+
+Do not run project initialization or dependency changes just to read this
+guidance. For an existing project that intentionally uses pip instead of uv,
+follow its documented setup:
 
 ```bash
 python -m pip install "dbt-snowflake==<approved_version>"

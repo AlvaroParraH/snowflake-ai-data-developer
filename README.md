@@ -29,6 +29,18 @@ establish organization-wide naming policy.
 Existing project conventions take precedence. Confirm names and applicable
 conventions before creating or migrating objects.
 
+## Python tooling for pipeline projects
+
+| Tool | Version | Use |
+|---|---|---|
+| [uv](https://docs.astral.sh/uv/) | Latest stable | Manage environments and dependencies for new Python pipeline projects. |
+
+Declare dependencies in `pyproject.toml` and commit `uv.lock` for reproducible
+installs. Install uv using the
+[official installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
+This is a convention for Python pipeline development, not a prerequisite for
+reading or using this documentation and its skills.
+
 ## Visual reference
 
 [Snowflake medallion + dbt project structure](docs/references/snowflake-medallion-dbt-project-structure.svg)

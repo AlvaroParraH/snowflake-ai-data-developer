@@ -1,6 +1,6 @@
 ---
 name: snowflake-project-structure
-description: "Use when creating, scaffolding, reviewing, or maintaining a Snowflake data engineering folder structure with Bronze ingestion, Silver/Gold dbt models, and Airflow DAGs. Preserve the agreed pipelines/ layout, place new files consistently, and check path changes without moving existing projects automatically."
+description: "Use when creating, scaffolding, reviewing, or maintaining a Snowflake project layout, Python dependency management with uv, Bronze ingestion, Silver/Gold dbt models, or Airflow DAG locations. Preserve the agreed pipelines/ layout without moving existing projects automatically."
 ---
 
 # Snowflake project structure
@@ -72,8 +72,29 @@ snowflake-data-project/
 The sales domain, filenames and prefixes are examples; follow approved naming
 conventions. Create only files needed for the requested implementation.
 `packages.yml`, snapshots, macros, infrastructure and workflows are included
-when needed, not mandatory empty scaffolding. Use the existing dependency
-manifest/lock tooling rather than adding a competing package manager.
+when needed, not mandatory empty scaffolding.
+
+For new Python pipeline components, use `uv` with `pyproject.toml` and commit
+`uv.lock`:
+
+```bash
+uv init --python <project-python-version>  # only for a new Python project
+uv add <package>
+uv lock
+uv sync
+uv run <project-command>
+```
+
+Use `uv run` for project Python commands so they execute in the locked project
+environment. Onboarding or creating a project can use `uv init`; use the
+existing project configuration and do not reinitialize an existing project.
+Pin the Python version and dependency ranges according to the project.
+Generate any platform-required `requirements.txt` from the selected locked
+dependencies; do not maintain a separate, conflicting dependency list.
+
+Existing projects retain their established dependency manager unless the
+owner approves a migration. Do not add uv or rewrite dependency files just
+because this skill was loaded. uv is not needed to read this skill kit.
 
 ## Placement rules
 
@@ -141,7 +162,9 @@ Deploy the ingestion package/scripts, dbt project, compatible dependencies
 and approved authentication to the actual execution workers or task
 containers as well. DAG deployment alone does not make those available.
 Pin providers and runtime dependencies compatibly with the project's chosen
-Airflow version using its existing dependency mechanism.
+Airflow version. Use the project's uv lock as the dependency source of truth;
+if the Airflow runtime expects `requirements.txt`, generate it from the
+compatible locked set, including any required Airflow constraints.
 
 Keep extraction, warehouse connections and dbt execution out of DAG
 parse/import time. A typical DAG coordinates:

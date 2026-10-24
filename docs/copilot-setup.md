@@ -10,6 +10,7 @@ discovery entries. It does not install or configure Codex.
 |---|---|
 | `.github/copilot-instructions.md` | Repository-wide Copilot instructions and skill routing. |
 | `.github/skills/<skill-name>/SKILL.md` | Native Copilot discovery entry with required `name` and `description` frontmatter. |
+| `.github/prompts/<name>.prompt.md` | Workspace task prompt, available by name in Copilot Chat. |
 | `skills/<skill-name>/SKILL.md` | Full platform guidance read by the corresponding discovery entry. |
 | `.github/github-app.yml` | Copilot app project instructions; no scripts or automation are configured. |
 
@@ -19,6 +20,17 @@ project structure (Bronze ingestion, Silver/Gold dbt models and Airflow DAGs),
 plus data governance (roles/grants, classification, policies and audit).
 Only their task descriptions and routing are repeated. Maintain detailed
 guidance in `skills/` to avoid two divergent implementations.
+
+### Configure an approved Snowflake MCP server
+
+Run `/snowflake-mcp-setup` from this workspace to configure an existing,
+administrator-approved Snowflake-managed MCP server for VS Code, Copilot CLI,
+or the Copilot app. The prompt uses the client-specific configuration path,
+previews any local file change for approval, and does not create server-side
+Snowflake objects or test the connection. Read the full
+[MCP guidance](#optional-snowflake-mcp-guidance) first. The administrator must
+provide the exact endpoint, approved tools, and client-compatible
+authentication setup; never put tokens or client secrets in project files.
 
 To preserve the agreed folder layout, invoke `snowflake-project-structure`
 when scaffolding or placing pipeline files. It defines the `pipelines/`

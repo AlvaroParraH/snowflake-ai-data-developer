@@ -1,6 +1,6 @@
 ---
 name: snowflake-project-structure
-description: "Use when creating, scaffolding, reviewing, or maintaining Snowflake project folder structure, pipelines/, Bronze ingestion, Silver/Gold dbt model paths, or Airflow DAG locations."
+description: "Use when creating, scaffolding, reviewing, or maintaining Snowflake project folder structure, uv-based Python dependency management, pipelines/, Bronze ingestion, Silver/Gold dbt model paths, or Airflow DAG locations."
 ---
 
 # Snowflake project structure
