@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,6 +86,10 @@ def verify_uv(executable: str) -> None:
     print(f"Prerequisite verified: {version} ({executable})")
 
 
+def verify_git(executable: str) -> None:
+    subprocess.run([executable, "--version"], check=True, stdin=subprocess.DEVNULL)
+
+
 def payloads() -> dict[Path, bytes]:
     files: dict[Path, bytes] = {}
     for directory in (".github/skills", ".github/prompts", "docs"):
@@ -132,7 +138,88 @@ def instruction_content(existing: bytes) -> bytes:
     return block + b"\n"
 
 
-def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = False) -> int:
+def json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON property; merge MCP configuration manually.")
+        result[key] = value
+    return result
+
+
+def invalid_json_constant(value: str) -> None:
+    raise ValueError("Non-finite JSON value; merge MCP configuration manually.")
+
+
+def mcp_content(existing: bytes | None, endpoint: str, authentication: str) -> bytes:
+    url = urlsplit(endpoint)
+    if (url.scheme != "https" or not url.hostname or url.username or url.password
+            or url.query or url.fragment or any(c.isspace() for c in endpoint)):
+        raise ValueError("MCP requires an exact approved HTTPS endpoint without credentials, "
+                         "query parameters, fragments or whitespace.")
+    if authentication not in {"oauth", "bearer"}:
+        raise ValueError("MCP authentication must be oauth or bearer, confirmed by your administrator.")
+    try:
+        config = (json.loads(existing, object_pairs_hook=json_object,
+                             parse_constant=invalid_json_constant)
+                  if existing is not None else {})
+    except (ValueError, UnicodeDecodeError) as error:
+        raise ValueError("Existing .vscode/mcp.json must be strict JSON for automated merging. "
+                         "For JSONC/comments, use /snowflake-mcp-setup to merge manually.") from error
+    if not isinstance(config, dict):
+        raise ValueError(".vscode/mcp.json must contain a JSON object.")
+    servers = config.setdefault("servers", {})
+    if not isinstance(servers, dict):
+        raise ValueError("MCP servers must be a JSON object.")
+    entry: dict[str, object] = {"type": "http", "url": endpoint}
+    if authentication == "bearer":
+        entry["headers"] = {"Authorization": "Bearer ${env:SNOWFLAKE_MCP_TOKEN}"}
+    if "snowflake" in servers and servers["snowflake"] != entry:
+        raise ValueError("Existing snowflake MCP server differs; merge it manually.")
+    servers["snowflake"] = entry
+    if existing is not None and json.loads(existing) == config:
+        return existing
+    return (json.dumps(config, indent=2) + "\n").encode()
+
+
+def environment_python(target: Path) -> Path:
+    return target / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def needs_environment(target: Path) -> bool:
+    check_destination(target, Path(".venv"))
+    environment = target / ".venv"
+    if not environment.exists():
+        for manifest in ("poetry.lock", "Pipfile", "Pipfile.lock", "environment.yml",
+                         "environment.yaml", ".python-version"):
+            if (target / manifest).exists():
+                raise ValueError(f"Existing {manifest} requires a project-specific environment "
+                                 "decision. Use --skip-venv and the project's existing workflow.")
+        return True
+    configuration = environment / "pyvenv.cfg"
+    if (not environment.is_dir() or not configuration.is_file()
+            or configuration.is_symlink() or not environment_python(target).is_file()):
+        raise ValueError("Existing .venv is not a recognizable virtual environment. "
+                         "Preserve or repair it manually; it will not be overwritten.")
+    return False
+
+
+def verify_environment(target: Path) -> None:
+    result = subprocess.run(
+        [str(environment_python(target)), "-I", "-c",
+         "import sys; print(sys.prefix); print(sys.base_prefix)"],
+        check=True, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+    )
+    prefixes = result.stdout.strip().splitlines()
+    if (len(prefixes) != 2 or Path(prefixes[0]).resolve() != (target / ".venv").resolve()
+            or prefixes[0] == prefixes[1]):
+        raise ValueError("Virtual environment verification failed; inspect .venv before retrying.")
+    print(f"Verified Python environment: {target / '.venv'} (no dependencies installed).")
+
+
+def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = False,
+            *, skip_venv: bool = False, mcp_endpoint: str | None = None,
+            mcp_auth: str | None = None, mcp_approved: bool = False) -> int:
     if not target.is_dir():
         raise ValueError("Target must be an existing project directory.")
     target = target.resolve()
@@ -147,6 +234,21 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
         raise ValueError(f"Not a regular file: {destination}")
     original = destination.read_bytes() if destination.exists() else None
     files[instructions] = instruction_content(original or b"")
+    mcp = Path(".vscode/mcp.json")
+    mcp_original = None
+    if mcp_endpoint is not None:
+        if not mcp_approved:
+            raise ValueError("Confirm administrator approval of the MCP endpoint, exposed tools "
+                             "and client-compatible authentication with --mcp-approved.")
+        check_destination(target, mcp)
+        config = target / mcp
+        if config.exists() and not config.is_file():
+            raise ValueError("MCP configuration is not a regular file.")
+        mcp_original = config.read_bytes() if config.exists() else None
+        files[mcp] = mcp_content(mcp_original, mcp_endpoint, mcp_auth or "")
+    elif mcp_auth is not None or mcp_approved:
+        raise ValueError("MCP authentication/approval requires --mcp-endpoint or --setup-mcp.")
+    create_environment = not skip_venv and needs_environment(target)
 
     changes: list[tuple[Path, bytes, bytes | None]] = []
     conflicts: list[str] = []
@@ -177,18 +279,45 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
             conflicts.append(f"{relative}: not a regular file")
             continue
         before = destination.read_bytes() if destination.exists() else None
+        if relative == mcp and before != mcp_original:
+            raise ValueError("MCP configuration changed during preview; rerun before making changes.")
         if before == content:
             unchanged += 1
-        elif before is not None and relative != instructions:
+        elif before is not None and relative not in {instructions, mcp}:
             conflicts.append(f"{relative}: existing content differs")
         else:
             changes.append((relative, content, before))
 
     print(f"Target: {target}")
+    print(f"Prerequisites: Bash entrypoint; Python {sys.version.split()[0]} at {sys.executable}.")
+    git = shutil.which("git")
+    if not git:
+        raise ValueError("Git is required. Install Git manually and add it to PATH; "
+                         "no tools or project files changed.")
+    print(f"Prerequisite: Git found at {git}; will verify with git --version.")
+    if skip_venv:
+        print("Python environment: skipped (--skip-venv); existing project tooling preserved.")
+    else:
+        print(f"  {'CREATE' if create_environment else 'VERIFY'} .venv "
+              f"using local Python; no dependencies or interpreter downloads.")
+    if mcp_endpoint is None:
+        print("MCP: deferred. Use --setup-mcp or /snowflake-mcp-setup when details are approved.")
+    else:
+        print(f"MCP: VS Code HTTP server 'snowflake', endpoint {mcp_endpoint}, auth {mcp_auth}.")
+        print(json.dumps({"servers": {"snowflake": json.loads(files[mcp])["servers"]["snowflake"]}},
+                         indent=2))
+        print("No connection will be made. Review trust, authentication and tool selection in VS Code.")
+        if mcp_auth == "bearer":
+            print("Provide SNOWFLAKE_MCP_TOKEN securely in the VS Code host environment later; "
+                  "the installer never reads or stores it.")
+        else:
+            print("Complete the administrator-provisioned OAuth flow in VS Code later. "
+                  "Static OAuth client details, if needed, require separate administrator setup.")
     for relative in directories:
         print(f"  MKDIR {relative}")
     for relative, _, before in changes:
-        print(f"  {'APPEND' if before is not None else 'CREATE'} {relative}")
+        action = "MERGE" if relative == mcp else "APPEND"
+        print(f"  {action if before is not None else 'CREATE'} {relative}")
     print(f"Unchanged: {unchanged}; planned writes: {len(changes)}; "
           f"planned directories: {len(directories)}")
     if conflicts:
@@ -210,23 +339,36 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
     if not uv and no_install:
         raise ValueError("uv is required but missing. Install uv and add it to PATH, "
                          "or rerun without --no-install. No project files written.")
-    if not assume_yes and (changes or directories or not uv):
+    if not assume_yes and (changes or directories or not uv or create_environment):
         if not sys.stdin.isatty():
             raise ValueError("Non-interactive installation requires --yes; preview with --dry-run.")
-        if input("Approve this plan, including uv installation if listed? [y/N] "
+        if input("Approve this plan, including environment/MCP setup and uv installation if listed? [y/N] "
                  ).strip().lower() not in {"y", "yes"}:
             print("Cancelled. No files written.")
             return 0
+    verify_git(git)
     if not uv:
         uv = install_uv()
     verify_uv(uv)
-    if not changes and not directories:
+    if not skip_venv and not create_environment:
+        verify_environment(target)
+    if not changes and not directories and not create_environment:
         print("Already installed; no files changed.")
         return 0
 
     written = 0
     created = 0
     try:
+        if create_environment:
+            check_destination(target, Path(".venv"))
+            (target / ".venv").mkdir()
+            environment = dict(os.environ, UV_VENV_SEED="false", UV_VENV_CLEAR="false")
+            subprocess.run(
+                [uv, "venv", "--no-config", "--offline", "--no-python-downloads",
+                 "--python", sys.executable, str(target / ".venv")],
+                check=True, stdin=subprocess.DEVNULL, env=environment, cwd=target,
+            )
+            verify_environment(target)
         for relative in directories:
             check_destination(target, relative)
             (target / relative).mkdir(exist_ok=True)
@@ -241,19 +383,38 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
             else:
                 if destination.read_bytes() != before:
                     raise ValueError(f"File changed after preview: {destination}")
-                with destination.open("ab") as stream:
-                    stream.write(content[len(before):])
+                if relative == mcp:
+                    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as stream:
+                        temporary = Path(stream.name)
+                        try:
+                            stream.write(content)
+                            stream.flush()
+                            if destination.read_bytes() != before:
+                                raise ValueError(f"File changed after preview: {destination}")
+                            os.replace(temporary, destination)
+                        finally:
+                            temporary.unlink(missing_ok=True)
+                else:
+                    with destination.open("ab") as stream:
+                        stream.write(content[len(before):])
             written += 1
-    except (OSError, ValueError):
+    except (OSError, ValueError, subprocess.CalledProcessError):
         print(f"Installation interrupted after {written} file writes and {created} directory "
               "operations; inspect the target before retrying.",
               file=sys.stderr)
+        if create_environment:
+            print("Environment setup was attempted; .venv may remain. Inspect/repair it manually "
+                  "before retrying. It will not be overwritten.", file=sys.stderr)
         raise
     print(f"Installed {written} files; created {created} pipeline directories. "
-          "uv prerequisite verified. No project dependencies, MCP connections or "
-          "Snowflake resources configured.")
+          "Prerequisites verified. No project dependencies installed or Snowflake connections made.")
     print("Open the target as the VS Code workspace root and reload to check Copilot discovery.")
     print("Expected: eight snowflake-* skills, /snowflake-mcp-setup and /snowflake-sql-check.")
+    if not skip_venv:
+        print(f"Select {environment_python(target)} as the project's VS Code interpreter.")
+    if mcp_endpoint is not None:
+        print("VS Code MCP configuration is ready for manual trust/authentication and approved "
+              "tool selection. Connection not tested.")
     return 0
 
 
@@ -269,12 +430,37 @@ def main() -> int:
                         help="Approve the displayed plan, including installation of missing uv")
     parser.add_argument("--no-install", action="store_true",
                         help="Never install uv; fail if the prerequisite is missing")
+    parser.add_argument("--skip-venv", action="store_true",
+                        help="Preserve existing project environment conventions; do not set up .venv")
+    parser.add_argument("--setup-mcp", action="store_true",
+                        help="Prompt for approved VS Code MCP details at setup time")
+    parser.add_argument("--mcp-endpoint", help="Exact approved HTTPS MCP endpoint; never include secrets")
+    parser.add_argument("--mcp-auth", choices=("oauth", "bearer"),
+                        help="Administrator-confirmed client-compatible authentication method")
+    parser.add_argument("--mcp-approved", action="store_true",
+                        help="Confirm the endpoint, exposed tools and client authentication are approved")
     args = parser.parse_args()
     if sys.version_info < (3, 10):
         parser.error("Python 3.10+ is required.")
     try:
-        return install(args.target.expanduser(), args.dry_run, args.yes, args.no_install)
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        if args.setup_mcp and not args.mcp_endpoint:
+            if args.dry_run:
+                print("MCP setup pending: actual --setup-mcp will ask for the approved endpoint, "
+                      "authentication and approval. No MCP file is planned yet.")
+            elif not sys.stdin.isatty():
+                raise ValueError("Non-interactive MCP setup requires --mcp-endpoint, "
+                                 "--mcp-auth and --mcp-approved; --yes does not supply approval.")
+            else:
+                args.mcp_endpoint = input("Administrator-approved HTTPS MCP endpoint (no secrets): ").strip()
+                args.mcp_auth = input("Administrator-confirmed authentication (oauth/bearer): ").strip()
+                args.mcp_approved = input(
+                    "Have the endpoint, exposed tools and VS Code authentication compatibility "
+                    "been reviewed and approved by your administrator? [y/N] "
+                ).strip().lower() in {"y", "yes"}
+        return install(args.target.expanduser(), args.dry_run, args.yes, args.no_install,
+                       skip_venv=args.skip_venv, mcp_endpoint=args.mcp_endpoint,
+                       mcp_auth=args.mcp_auth, mcp_approved=args.mcp_approved)
+    except (OSError, ValueError, EOFError, subprocess.CalledProcessError) as error:
         print(f"Error: {error}", file=sys.stderr)
         if isinstance(error, subprocess.CalledProcessError) and error.stderr:
             print(error.stderr, file=sys.stderr)

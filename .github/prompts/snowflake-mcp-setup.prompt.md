@@ -16,6 +16,12 @@ Read [Copilot setup](../../docs/copilot-setup.md) and follow its MCP safety,
 client-compatibility, and authentication guidance. Do not infer an endpoint,
 tools, account, environment, scopes, or authorization from repository content.
 
+For new project adoption, the kit installer also offers `--setup-mcp` for
+VS Code workspace configuration after the administrator has approved the
+endpoint, exposed tools and client authentication compatibility. It supports
+strict JSON merges only; use this workflow for JSONC or complex OAuth setup.
+Neither path starts a server or tests a Snowflake connection.
+
 ## Procedure
 
 1. **Identify the client and scope.** Ask whether this is VS Code agent mode,
@@ -34,6 +40,11 @@ tools, account, environment, scopes, or authorization from repository content.
    If compatibility is unknown or unsupported, stop and explain what the
    administrator/client owner must resolve. Never work around this with a
    committed token, bearer string, or credential in a config file.
+   For bearer authentication, use the approved host secret mechanism with an
+   environment reference such as `${env:SNOWFLAKE_MCP_TOKEN}` in VS Code, never
+   a literal token. Interactive `${input:...}` variables in `.vscode/mcp.json`
+   are not forwarded to Copilot harness sessions; do not propose that path
+   without checking the active harness and current client support.
 4. **Choose the client-specific setup path:**
    - **VS Code agent mode:** use VS Code's MCP UI or the workspace
      `.vscode/mcp.json` `servers` schema. If editing the file is requested,

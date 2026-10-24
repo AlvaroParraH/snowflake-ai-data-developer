@@ -84,10 +84,16 @@ bash install.sh --target /path/to/existing-project
 ```
 
 The target must already exist and must be outside this kit. The installer
-needs Bash, Python 3.10+, and uv. Its Python code uses only the standard library.
+needs Git, Bash, Python 3.10+, and uv. Its Python code uses only the standard library.
 The first command previews all writes and prerequisites; the second asks for
 confirmation. For automation, use `--yes` to approve the displayed plan,
 including installing missing uv. No target is selected implicitly.
+
+Git is checked on PATH and verified using `git --version`. Python is the
+interpreter running the installer, with a 3.10+ version check; the Bash entrypoint
+checks for Python before launching it. Git and Python are never auto-installed.
+VS Code and GitHub Copilot must be installed and enabled separately; the installer
+does not require a `code` CLI or sign into your account.
 
 ##### uv prerequisite
 
@@ -111,9 +117,80 @@ including installing missing uv. No target is selected implicitly.
 Target conflicts are checked before uv installation. A failed uv installation
 or verification stops before project writes, but any external tool installation
 may have partially completed. An installed uv is not rolled back if later project
-writes fail. No project environment is initialized and no dependencies are synced.
+writes fail. No dependencies are synced.
 See the [official uv installation guidance](https://docs.astral.sh/uv/getting-started/installation/)
 for manual installation.
+
+##### Python environment
+
+The default plan includes creation of `.venv/` using:
+
+```text
+uv venv --no-config --offline --no-python-downloads --python <installer-python> <target>/.venv
+```
+
+This uses the existing Python interpreter, not a downloaded runtime. No seed
+packages (including pip), project dependencies, Python manifests or lockfiles
+are installed/generated. The installer verifies the environment's interpreter
+and `sys.prefix` locally. Existing recognizable `.venv` environments are verified
+and preserved, including their packages; broken environments are never cleared.
+Confirm the installer interpreter meets your project-specific Python requirements.
+
+Use `--skip-venv` to retain another workflow or interpreter. If `.venv` is absent
+but Poetry/Pipenv/Conda manifests or `.python-version` are present, setup stops
+and requests that decision. Existing dependency manifests are never changed.
+Exclude `.venv/` from Git. Select its interpreter in VS Code or activate it with
+`source .venv/bin/activate` on macOS/Linux.
+
+A failed creation may leave a partial `.venv`; inspect/repair it manually before
+retrying. The installer reports failure rather than overwriting it on the next run.
+`--no-install` prohibits installing the uv tool, not creating the local environment;
+combine it with `--skip-venv` to prohibit environment creation too.
+
+##### VS Code Snowflake MCP configuration
+
+Use `--setup-mcp` to enter the endpoint, authentication (`oauth` or `bearer`),
+and administrator approval at setup time. Never enter a credential into these
+prompts. Before approving, confirm the exact endpoint, exposed tools and
+client-compatible authentication with your Snowflake administrator. OAuth client
+registration/callback/scopes must already be provisioned; dynamic registration is
+not supported by Snowflake-managed MCP.
+
+For non-interactive use, provide all details explicitly:
+
+```bash
+bash install.sh --target /path/to/existing-project --dry-run \
+  --mcp-endpoint https://approved.example/mcp --mcp-auth oauth --mcp-approved
+bash install.sh --target /path/to/existing-project --yes \
+  --mcp-endpoint https://approved.example/mcp --mcp-auth oauth --mcp-approved
+```
+
+The endpoint above is illustrative; use the exact approved endpoint.
+`--yes` approves writes but does not replace `--mcp-approved`. A dry run with
+`--setup-mcp` alone reports pending details without prompting or creating a config;
+provide the explicit options to preview the concrete MCP change.
+
+The installer merges a `snowflake` HTTP entry into `.vscode/mcp.json` using the
+VS Code `servers` schema. Unrelated entries are preserved semantically; JSON
+formatting is normalized only when a merge is needed. Identical configurations
+are left byte-for-byte unchanged. A conflicting Snowflake entry, symlink, invalid
+JSON or JSONC/comments stops before environment/tool installation or project writes.
+Use `/snowflake-mcp-setup` for manual JSONC merges and more complex OAuth setup.
+
+Bearer mode stores only `Authorization: Bearer ${env:SNOWFLAKE_MCP_TOKEN}`.
+Supply the value securely in the VS Code host environment later, not in source,
+chat, logs, or shell history. The installer does not read it. Unlike interactive
+`${input:...}` variables, environment references can be used with Copilot harness
+sessions. Review the current
+[VS Code MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
+for client capabilities.
+
+No MCP server is installed or started, no authentication is performed, and no
+Snowflake connection, tool invocation or SQL test is made. Complete the reviewed
+client trust/authentication steps and select only approved tools in VS Code later.
+Configuration does not enforce a tool allowlist or establish server-side grants.
+Without endpoint details, MCP is explicitly deferred; the setup prompt remains
+available. No placeholder endpoint is written.
 
 The installer also creates the agreed pipeline directory layout by default:
 
@@ -132,7 +209,7 @@ Missing folders appear as `MKDIR` in the preview. Existing folders and their
 contents are preserved; files blocking a required folder or symlink destinations
 stop installation before any writes. Repeat runs restore missing folders.
 The installer does not move existing pipelines or generate models, DAGs,
-`dbt_project.yml`, Python manifests, or other runtime configuration. These empty
+`dbt_project.yml`, Python manifests, or pipeline runtime configuration. These empty
 code folders are not a runnable project and are not tracked by Git until files
 are added. `--dry-run` creates neither folders nor files.
 
@@ -145,9 +222,9 @@ Installed assets:
   `.github/copilot-instructions.md`. Existing project text is preserved.
   Kit-maintenance instructions are not copied into application instructions.
 
-Apart from the pipeline folders, no other application files are copied or modified. The
-installer does not overwrite README files or app configuration, install
-project dependencies, configure MCP, or access Snowflake. The only optional
+Besides the kit assets, the installer creates the pipeline folders and `.venv`
+by default, and optionally creates/merges `.vscode/mcp.json`. It does not
+overwrite README files, install project dependencies, or access Snowflake. The only optional
 non-project change is the explicitly approved uv installation described above;
 no assistant home configuration or shell profiles are changed.
 Review and enable Copilot app configuration manually as described below.

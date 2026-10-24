@@ -44,10 +44,9 @@ its skills.
 
 ## Install into a project
 
-Use Python 3.10+ and Bash to run the [project-local installer](install.sh).
-The installer requires uv, checks for it on PATH, and verifies `uv --version`
-before writing project files. No third-party Python packages, project virtual
-environment, or Snowflake credentials are needed.
+Use Git, Python 3.10+ and Bash to run the [project-local installer](install.sh).
+It checks Git and uv on PATH and verifies their version commands before writing
+project files. No third-party Python packages or Snowflake credentials are needed.
 
 ```bash
 bash install.sh --target /path/to/existing-project --dry-run
@@ -60,7 +59,7 @@ If uv is missing, installation is offered using Homebrew on macOS or Astral's
 official installer on Linux. This needs network access and installs uv outside
 the project. Linux installation uses `~/.local/bin` without editing shell
 profiles; add that directory to PATH for future shells if needed.
-Python and Homebrew (on macOS) must already be installed.
+Git, Python and Homebrew (on macOS, only for installing uv) must already be installed.
 
 Use `--no-install` to prohibit tool installation; missing uv then stops an
 actual run before project writes. A dry run only reports prerequisites and
@@ -86,11 +85,48 @@ pipelines/
 ```
 
 These are empty code folders, not a runnable dbt or Airflow project.
-No example models, DAGs, credentials, or configuration files are generated.
+No example models, DAGs, credentials, or pipeline configuration files are generated.
 Empty directories are not tracked by Git; add implementation files when ready.
 
-The installer does not install Python dependencies, configure MCP, connect
-to Snowflake, or modify personal assistant directories.
+### Python environment
+
+By default, the installer creates `.venv/` with `uv venv`, using the Python
+interpreter running the installer, offline and without downloading Python or
+installing dependencies (including pip). Existing valid environments are verified
+and left unchanged. No `pyproject.toml` or `uv.lock` is generated or modified.
+Select `.venv/bin/python` in VS Code or activate with `source .venv/bin/activate`.
+Confirm that this interpreter meets your project's Python requirements.
+
+Use `--skip-venv` for an existing environment workflow. A missing `.venv` alongside
+Poetry/Pipenv/Conda manifests or `.python-version` stops setup and requests that
+decision rather than silently replacing the project's conventions.
+Invalid existing environments are not overwritten. Exclude `.venv/` from Git.
+
+### Optional VS Code Snowflake MCP setup
+
+Add `--setup-mcp` to enter the endpoint and authentication details interactively:
+
+```bash
+bash install.sh --target /path/to/existing-project --setup-mcp
+```
+
+Supply an exact administrator-approved HTTPS endpoint, choose `oauth` or `bearer`,
+and confirm the exposed tools and VS Code authentication path are approved.
+The installer creates or merges `.vscode/mcp.json`, preserving unrelated server
+entries. Conflicting Snowflake entries or JSONC/comments require a manual merge.
+OAuth must already be provisioned for the client; Snowflake-managed MCP does not
+support dynamic OAuth client registration. Bearer mode writes only an environment
+variable reference, `${env:SNOWFLAKE_MCP_TOKEN}`, never a token. Provide that variable
+securely to the VS Code host later; do not save it in project files or shell history.
+Interactive `${input:...}` secrets are not used because they are not forwarded to
+Copilot harness sessions.
+
+Without MCP details, configuration is explicitly deferred and the setup prompt is
+still installed. The installer never starts MCP, authenticates, connects to
+Snowflake, or executes SQL. Review server trust and select only approved tools in
+VS Code before use; writing configuration is not a tested connection.
+
+The installer does not install project dependencies or modify personal assistant directories.
 See [installation details](docs/copilot-setup.md#install-into-another-project)
 for conflict handling and discovery verification.
 

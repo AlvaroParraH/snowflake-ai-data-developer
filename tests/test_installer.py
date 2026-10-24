@@ -1,9 +1,11 @@
 from contextlib import ExitStack, redirect_stdout
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,8 +37,20 @@ class InstallerTests(unittest.TestCase):
         self.bin = Path(self.temporary.name) / "bin"
         self.bin.mkdir()
         uv = self.bin / "uv"
-        uv.write_text(f"#!{sys.executable}\nprint('uv 0.0-test')\n")
+        uv.write_text(
+            f"#!{sys.executable}\n"
+            "import sys, venv\n"
+            "if sys.argv[1:] == ['--version']:\n"
+            "    print('uv 0.0-test')\n"
+            "elif sys.argv[1] == 'venv':\n"
+            "    venv.EnvBuilder(with_pip=False).create(sys.argv[-1])\n"
+            "else:\n"
+            "    raise SystemExit(2)\n"
+        )
         uv.chmod(0o755)
+        git = self.bin / "git"
+        git.write_text(f"#!{sys.executable}\nprint('git version test')\n")
+        git.chmod(0o755)
         self.environment = dict(os.environ, PATH=str(self.bin) + os.pathsep
                                 + os.environ.get("PATH", ""))
 
@@ -71,6 +85,8 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 2)
         self.assertFalse((self.target / ".github/github-app.yml").exists())
         self.assertFalse((self.target / "pyproject.toml").exists())
+        self.assertTrue((self.target / ".venv/pyvenv.cfg").is_file())
+        self.assertFalse((self.target / "uv.lock").exists())
         for directory in PIPELINE_LEAVES:
             self.assertTrue((self.target / directory).is_dir(), directory)
         self.assertEqual(list((self.target / "pipelines").rglob("*.*")), [])
@@ -128,6 +144,169 @@ class InstallerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("exit status 7", result.stderr)
         self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_missing_git_fails_without_writes(self) -> None:
+        (self.bin / "git").unlink()
+        self.environment["PATH"] = str(self.bin)
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Git is required", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_broken_git_fails_without_writes(self) -> None:
+        (self.bin / "git").write_text(f"#!{sys.executable}\nraise SystemExit(8)\n")
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exit status 8", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_skip_environment_preserves_manifests(self) -> None:
+        (self.target / "pyproject.toml").write_text("[project]\nname = 'existing'\n")
+        result = self.run_installer("--yes", "--skip-venv")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.target / ".venv").exists())
+        self.assertEqual((self.target / "pyproject.toml").read_text(),
+                         "[project]\nname = 'existing'\n")
+
+    def test_invalid_environment_is_not_overwritten(self) -> None:
+        (self.target / ".venv").mkdir()
+        before = self.snapshot()
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a recognizable virtual environment", result.stderr)
+        self.assertEqual(before, self.snapshot())
+        self.assertFalse((self.target / ".github").exists())
+
+    def test_existing_environment_workflow_requires_skip(self) -> None:
+        (self.target / "poetry.lock").write_text("# Existing dependency manager\n")
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--skip-venv", result.stderr)
+        self.assertFalse((self.target / ".venv").exists())
+
+    def test_environment_symlink_is_rejected(self) -> None:
+        (self.target / ".venv").symlink_to(self.bin, target_is_directory=True)
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr)
+        self.assertFalse((self.target / ".github").exists())
+
+    def test_environment_creation_failure_stops_before_assets(self) -> None:
+        uv = self.bin / "uv"
+        uv.write_text(f"#!{sys.executable}\nimport sys\n"
+                      "if sys.argv[1] == '--version': print('uv test')\n"
+                      "else: raise SystemExit(9)\n")
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(".venv may remain", result.stderr)
+        self.assertFalse((self.target / ".github").exists())
+
+    def mcp_arguments(self, authentication: str = "oauth") -> tuple[str, ...]:
+        return ("--mcp-endpoint", "https://example.snowflakecomputing.com/approved/mcp",
+                "--mcp-auth", authentication, "--mcp-approved")
+
+    def test_mcp_oauth_configuration_and_idempotency(self) -> None:
+        result = self.run_installer("--yes", *self.mcp_arguments())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads((self.target / ".vscode/mcp.json").read_text())
+        self.assertEqual(config["servers"]["snowflake"],
+                         {"type": "http",
+                          "url": "https://example.snowflakecomputing.com/approved/mcp"})
+        before = self.snapshot()
+        result = self.run_installer("--yes", *self.mcp_arguments())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(before, self.snapshot())
+
+    def test_mcp_bearer_uses_environment_reference_not_a_token(self) -> None:
+        self.environment["SNOWFLAKE_MCP_TOKEN"] = "test-only-not-a-real-token"
+        result = self.run_installer("--yes", *self.mcp_arguments("bearer"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads((self.target / ".vscode/mcp.json").read_text())
+        self.assertEqual(config["servers"]["snowflake"]["headers"],
+                         {"Authorization": "Bearer ${env:SNOWFLAKE_MCP_TOKEN}"})
+        self.assertNotIn("inputs", config)
+        self.assertNotIn("test-only-not-a-real-token",
+                         (self.target / ".vscode/mcp.json").read_text() + result.stdout + result.stderr)
+
+    def test_mcp_merges_unrelated_config(self) -> None:
+        path = self.target / ".vscode/mcp.json"
+        path.parent.mkdir()
+        existing = {"servers": {"other": {"type": "http", "url": "https://example.com/mcp"}},
+                    "inputs": [{"id": "other", "type": "promptString", "description": "Other"}]}
+        path.write_text(json.dumps(existing))
+        result = self.run_installer("--yes", *self.mcp_arguments("bearer"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        merged = json.loads(path.read_text())
+        self.assertEqual(merged["servers"]["other"], existing["servers"]["other"])
+        self.assertEqual(merged["inputs"][0], existing["inputs"][0])
+
+    def test_mcp_dry_run_does_not_write(self) -> None:
+        result = self.run_installer("--dry-run", *self.mcp_arguments("bearer"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+        self.assertIn(".vscode/mcp.json", result.stdout)
+
+    def test_mcp_requires_explicit_details_noninteractively(self) -> None:
+        result = self.run_installer("--yes", "--setup-mcp")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Non-interactive MCP setup requires", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_mcp_setup_dry_run_defers_prompts(self) -> None:
+        result = self.run_installer("--dry-run", "--setup-mcp")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MCP setup pending", result.stdout)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_mcp_rejects_missing_approval_or_authentication(self) -> None:
+        for arguments in (self.mcp_arguments()[:-1],
+                          ("--mcp-endpoint", "https://example.com/mcp", "--mcp-approved")):
+            result = self.run_installer("--yes", *arguments)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_mcp_conflicts_and_jsonc_are_preserved(self) -> None:
+        path = self.target / ".vscode/mcp.json"
+        path.parent.mkdir()
+        for existing in ('{"servers": {"snowflake": {"url": "https://other.example"}}}',
+                         '{// JSONC comment\n"servers": {}}',
+                         '{"servers": []}', '[]',
+                         '{"servers": {}, "servers": {}}', '{"unsupported": NaN}'):
+            with self.subTest(existing=existing):
+                path.write_text(existing)
+                result = self.run_installer("--yes", *self.mcp_arguments("bearer"))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(path.read_text(), existing)
+                self.assertFalse((self.target / ".venv").exists())
+
+    def test_mcp_rejects_unsafe_endpoint_without_echoing_it(self) -> None:
+        for endpoint in ("http://example.com/mcp", "https://user:secret@example.com/mcp",
+                         "https://example.com/mcp?token=secret", "https://example.com/mcp#secret"):
+            result = self.run_installer("--yes", "--mcp-endpoint", endpoint,
+                                        "--mcp-auth", "oauth", "--mcp-approved")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("secret", result.stdout + result.stderr)
+            self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_mcp_destination_symlink_rejected(self) -> None:
+        (self.target / ".vscode").symlink_to(self.bin, target_is_directory=True)
+        result = self.run_installer("--yes", *self.mcp_arguments())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr)
+        self.assertFalse((self.bin / "mcp.json").exists())
+
+    def test_mcp_interactive_setup_confirms_details(self) -> None:
+        with patch.object(installer.sys, "argv", [
+            str(SCRIPT), "--target", str(self.target), "--setup-mcp",
+        ]), patch.object(installer.sys.stdin, "isatty", return_value=True), patch(
+            "builtins.input", side_effect=[
+                "https://approved.example/mcp", "oauth", "yes",
+            ],
+        ), patch.object(installer, "install", return_value=0) as install:
+            self.assertEqual(installer.main(), 0)
+        self.assertEqual(install.call_args.kwargs["mcp_endpoint"], "https://approved.example/mcp")
+        self.assertEqual(install.call_args.kwargs["mcp_auth"], "oauth")
+        self.assertTrue(install.call_args.kwargs["mcp_approved"])
 
     def test_existing_pipeline_content_preserved(self) -> None:
         model = self.target / "pipelines/dbt/models/silver/staging/custom.sql"
@@ -258,6 +437,9 @@ class UvPrerequisiteTests(unittest.TestCase):
         self.addCleanup(stack.close)
         stack.enter_context(redirect_stdout(self.output))
         stack.enter_context(patch.object(installer.sys, "platform", "darwin"))
+        stack.enter_context(patch.object(installer, "verify_git"))
+        stack.enter_context(patch.object(installer, "needs_environment", return_value=False))
+        stack.enter_context(patch.object(installer, "verify_environment"))
         self.which = stack.enter_context(patch.object(
             installer.shutil, "which",
             side_effect=lambda name: None if name == "uv" else f"/tools/{name}",
@@ -341,7 +523,7 @@ class UvPrerequisiteTests(unittest.TestCase):
         self.run.assert_not_called()
 
     def test_mac_missing_homebrew_reports_manual_install(self) -> None:
-        self.which.side_effect = lambda name: None
+        self.which.side_effect = lambda name: "/tools/git" if name == "git" else None
         with self.assertRaisesRegex(ValueError, "Install Homebrew or install uv manually"):
             installer.install(self.target, False, True)
         self.run.assert_not_called()
@@ -393,6 +575,28 @@ class UvPrerequisiteTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Install uv manually"):
                 installer.install(self.target, False, True)
         self.run.assert_not_called()
+
+
+@unittest.skipUnless(shutil.which("uv") and shutil.which("git"), "Requires existing uv and Git")
+class RealUvTests(unittest.TestCase):
+    def test_offline_environment_creation_and_reuse(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="snowflake-real-uv-test-") as directory:
+            target = Path(directory)
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(installer.install(target, False, True, no_install=True), 0)
+                python = installer.environment_python(target)
+                result = subprocess.run(
+                    [str(python), "-I", "-c",
+                     "import importlib.util; assert importlib.util.find_spec('pip') is None"],
+                    check=False, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                configuration = (target / ".venv/pyvenv.cfg").read_bytes()
+                self.assertEqual(installer.install(target, False, True, no_install=True), 0)
+                self.assertEqual((target / ".venv/pyvenv.cfg").read_bytes(), configuration)
+            self.assertFalse((target / "pyproject.toml").exists())
+            self.assertFalse((target / "uv.lock").exists())
+            self.assertFalse((target / ".vscode/mcp.json").exists())
 
 
 if __name__ == "__main__":
