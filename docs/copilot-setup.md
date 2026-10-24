@@ -2,24 +2,23 @@
 
 GitHub Copilot is an assistant target in its own right, not an alias for
 OpenAI Codex. This kit supplies Copilot-native project instructions and skill
-discovery entries. It does not install or configure Codex.
+skills with their full guidance. It does not install or configure Codex.
 
 ## Project-local files
 
 | Path relative to the project root | Purpose |
 |---|---|
 | `.github/copilot-instructions.md` | Repository-wide Copilot instructions and skill routing. |
-| `.github/skills/<skill-name>/SKILL.md` | Native Copilot discovery entry with required `name` and `description` frontmatter. |
+| `.github/skills/<skill-name>/SKILL.md` | Full skill guidance and native Copilot discovery metadata (`name` and `description` frontmatter). |
 | `.github/prompts/<name>.prompt.md` | Workspace task prompt, available by name in Copilot Chat. |
-| `skills/<skill-name>/SKILL.md` | Full platform guidance read by the corresponding discovery entry. |
 | `.github/github-app.yml` | Copilot app project instructions; no scripts or automation are configured. |
 
-The eight discovery entries cover naming conventions, Bronze profiling,
+The eight skills cover naming conventions, Bronze profiling,
 medallion architecture, data quality, data contracts, dbt integration, and
 project structure (Bronze ingestion, Silver/Gold dbt models and Airflow DAGs),
 plus data governance (roles/grants, classification, policies and audit).
-Only their task descriptions and routing are repeated. Maintain detailed
-guidance in `skills/` to avoid two divergent implementations.
+Maintain discovery metadata and full guidance together in each skill file;
+there is no separate root-level skill copy.
 
 ### Configure an approved Snowflake MCP server
 
@@ -43,6 +42,25 @@ Opening only the parent folder does not install the nested kit's instructions
 or skills for every project under that parent. No files have been added to
 the parent workspace's `.github/` or to personal skill directories.
 
+### Check SQL before a commit
+
+Run `/snowflake-sql-check` in VS Code Copilot Chat to invoke the
+[SQL check prompt](../.github/prompts/snowflake-sql-check.prompt.md).
+It defaults to staged SQL files and distinguishes working-tree edits from
+the content being committed. It uses existing SQLFluff tooling with the
+Snowflake dialect, reports syntax/templating/style issues separately, and
+does not install tools, auto-fix, commit, or connect to Snowflake. dbt
+templating is blocked unless its execution path is verified local-only.
+No selected SQL files or missing tooling is reported explicitly, not as a
+successful validation.
+
+This prompt is manual guidance, not a pre-commit hook or required CI check.
+This documentation-only kit does not install SQLFluff. To use the prompt
+in a pipeline repository, copy it into that repository's `.github/prompts/`
+and provide the project's pinned tooling and configuration.
+
+### Client availability
+
 Use a current Copilot client with Agent Skills support. GitHub documents
 project skill support for Copilot CLI, the Copilot app, cloud agent, code
 review, and supported IDE agent modes; availability and UI differ by client.
@@ -56,17 +74,119 @@ server, install dependencies, or activate database access.
 
 ### Adopt in another Snowflake repository
 
-Review the files, then manually merge the following into the target
-repository root:
+#### Install into another project
 
-1. The desired `skills/<skill-name>/` directories and their matching
-   `.github/skills/<skill-name>/` directories. Keep both paths together:
-   discovery entries explicitly read the full files via relative links.
+From the kit checkout, run:
+
+```bash
+bash install.sh --target /path/to/existing-project --dry-run
+bash install.sh --target /path/to/existing-project
+```
+
+The target must already exist and must be outside this kit. The installer
+needs Bash, Python 3.10+, and uv. Its Python code uses only the standard library.
+The first command previews all writes and prerequisites; the second asks for
+confirmation. For automation, use `--yes` to approve the displayed plan,
+including installing missing uv. No target is selected implicitly.
+
+##### uv prerequisite
+
+- If uv is on PATH, the installer verifies `uv --version`; existing installations
+  are not upgraded or replaced. Verification failure stops before project writes.
+- If uv is missing, the preview lists the installation action. Accepting the
+  plan (or using `--yes`) approves downloading/installing uv outside the target.
+  On macOS it runs `brew install uv`, requiring existing Homebrew.
+  On Linux it downloads `https://astral.sh/uv/install.sh` with curl to a temporary
+  file, then runs it with sh, installing to `~/.local/bin` using
+  `UV_INSTALL_DIR` and `UV_NO_MODIFY_PATH=1`. It does not edit shell profiles;
+  add `~/.local/bin` to PATH for future shells if needed.
+- Python, Homebrew, curl, and sh are not installed automatically. Unsupported
+  platforms or missing installation tools produce manual-install guidance.
+- `--no-install` prohibits uv installation. If uv is missing, an actual run
+  fails before project writes. With uv already on PATH, installation needs no
+  network access.
+- `--dry-run` reports status without executing uv or any installation commands,
+  downloading anything, or writing files. A missing uv report is not verification.
+
+Target conflicts are checked before uv installation. A failed uv installation
+or verification stops before project writes, but any external tool installation
+may have partially completed. An installed uv is not rolled back if later project
+writes fail. No project environment is initialized and no dependencies are synced.
+See the [official uv installation guidance](https://docs.astral.sh/uv/getting-started/installation/)
+for manual installation.
+
+The installer also creates the agreed pipeline directory layout by default:
+
+```text
+pipelines/
+|-- ingestion/bronze/
+|-- dbt/models/
+|   |-- silver/
+|   |   |-- staging/
+|   |   `-- intermediate/
+|   `-- gold/marts/
+`-- orchestration/airflow/dags/
+```
+
+Missing folders appear as `MKDIR` in the preview. Existing folders and their
+contents are preserved; files blocking a required folder or symlink destinations
+stop installation before any writes. Repeat runs restore missing folders.
+The installer does not move existing pipelines or generate models, DAGs,
+`dbt_project.yml`, Python manifests, or other runtime configuration. These empty
+code folders are not a runnable project and are not tracked by Git until files
+are added. `--dry-run` creates neither folders nor files.
+
+Installed assets:
+
+- All eight full skills under `.github/skills/`, including discovery metadata.
+- Both `.github/prompts/` workflows and supporting Markdown/SVG files under
+  `docs/`, preserving relative links.
+- A marked Snowflake guidance block appended to
+  `.github/copilot-instructions.md`. Existing project text is preserved.
+  Kit-maintenance instructions are not copied into application instructions.
+
+Apart from the pipeline folders, no other application files are copied or modified. The
+installer does not overwrite README files or app configuration, install
+project dependencies, configure MCP, or access Snowflake. The only optional
+non-project change is the explicitly approved uv installation described above;
+no assistant home configuration or shell profiles are changed.
+Review and enable Copilot app configuration manually as described below.
+
+Identical assets are skipped on repeat runs. If any destination asset differs
+or a managed instruction block has been edited, the installer exits with an
+error before writing. There is no force-overwrite mode: compare the source
+and destination, manually merge or back up/move the specific conflicting
+asset, and rerun. Do not delete the target project. Symlink destinations are
+rejected. A filesystem failure during writes can leave a partial install;
+the error reports completed file writes and pipeline directory operations.
+Inspect the target and rerun
+after resolving the failure; already identical assets will be skipped.
+
+For targets installed with the older split layout, manually merge the full
+skills into `.github/skills/` and update instruction links before rerunning.
+Remove only the obsolete root-level kit skill copies after reviewing and
+preserving any local edits. The installer does not delete or migrate existing
+project content automatically, and an older managed instruction block still
+requires a manual merge.
+
+Open the target itself as the workspace root and verify discovery using the
+steps below. Copying files does not guarantee that a particular client or
+chat mode has loaded them.
+
+#### Manual adoption
+
+For a subset of skills or custom placement, review and manually merge the
+following into the target repository root:
+
+1. The desired `.github/skills/<skill-name>/` directories. Each `SKILL.md`
+   contains both discovery metadata and full guidance.
 2. Relevant guidance from `.github/copilot-instructions.md`. Merge with the
    repository's instructions rather than overwriting them.
 3. For Copilot app projects, merge the instruction routing from
    `.github/github-app.yml` with existing app configuration and review it in
    the app. Do not replace existing scripts or settings.
+4. Copy desired `.github/prompts/` workflows and their supporting documentation.
+   Preserve or update their relative links.
 
 Preserve the relative layout shown above, including cross-skill links, or
 update and verify those links when adopting only a subset. Do not copy the
@@ -84,18 +204,23 @@ skill management or discovery interface. Check that all intended
 Ask a local-only question such as:
 
 > Use snowflake-naming-conventions to explain unquoted versus quoted names.
-> Read its linked full skill and cite the local path. Do not connect to
+> Read its full SKILL.md and cite the local path. Do not connect to
 > Snowflake or run SQL.
 
-Confirm that the assistant can read both the discovery entry and the full
-skill. If not, check the workspace root, exact uppercase `SKILL.md` filename,
+Confirm that the assistant can read the full skill directly under
+`.github/skills/`. If not, check the workspace root, exact uppercase `SKILL.md` filename,
 YAML frontmatter, relative links, duplicate skill names, and client support.
 Do not solve a discovery failure by granting more database permissions.
 
 For artifact changes, validate Markdown links/fences and YAML
-frontmatter/examples locally, check that every native entry resolves to its
-full skill, and review illustrative SQL without running it. No Snowflake
+frontmatter/examples locally, check that every skill's `name` matches its
+directory, and review illustrative SQL without running it. No Snowflake
 credentials, database, dbt installation, or application build is required.
+For installer code changes, run the standard-library integration tests:
+
+```bash
+python3 -B -m unittest discover -s tests -p 'test_installer.py' -v
+```
 
 ## Optional Snowflake MCP guidance
 

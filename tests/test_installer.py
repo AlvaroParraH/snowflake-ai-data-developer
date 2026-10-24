@@ -1,0 +1,399 @@
+from contextlib import ExitStack, redirect_stdout
+import importlib.util
+import io
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts/install_kit.py"
+SPEC = importlib.util.spec_from_file_location("install_kit", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+installer = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(installer)
+PIPELINE_LEAVES = (
+    "pipelines/ingestion/bronze",
+    "pipelines/dbt/models/silver/staging",
+    "pipelines/dbt/models/silver/intermediate",
+    "pipelines/dbt/models/gold/marts",
+    "pipelines/orchestration/airflow/dags",
+)
+
+
+class InstallerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="snowflake-kit-test-")
+        self.addCleanup(self.temporary.cleanup)
+        self.target = Path(self.temporary.name) / "project with spaces"
+        self.target.mkdir()
+        self.bin = Path(self.temporary.name) / "bin"
+        self.bin.mkdir()
+        uv = self.bin / "uv"
+        uv.write_text(f"#!{sys.executable}\nprint('uv 0.0-test')\n")
+        uv.chmod(0o755)
+        self.environment = dict(os.environ, PATH=str(self.bin) + os.pathsep
+                                + os.environ.get("PATH", ""))
+
+    def run_installer(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "--target", str(self.target), *arguments],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env=self.environment,
+            check=False,
+        )
+
+    def snapshot(self) -> dict[str, bytes]:
+        return {
+            str(file.relative_to(self.target)): file.read_bytes()
+            for file in self.target.rglob("*")
+            if file.is_file()
+        }
+
+    def test_fresh_install_links_and_idempotency(self) -> None:
+        result = self.run_installer("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 8)
+        self.assertFalse((self.target / "skills").exists())
+        for skill in (self.target / ".github/skills").glob("*/SKILL.md"):
+            content = skill.read_text()
+            self.assertIn(f"\nname: {skill.parent.name}\n", content)
+            self.assertRegex(content, r'\A---\nname: [^\n]+\ndescription: "[^\n]+"\n---\n')
+            self.assertGreater(len(content.splitlines()), 50, skill)
+            self.assertNotIn("../../../skills/", content)
+        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 2)
+        self.assertFalse((self.target / ".github/github-app.yml").exists())
+        self.assertFalse((self.target / "pyproject.toml").exists())
+        for directory in PIPELINE_LEAVES:
+            self.assertTrue((self.target / directory).is_dir(), directory)
+        self.assertEqual(list((self.target / "pipelines").rglob("*.*")), [])
+        for file in self.target.rglob("*.md"):
+            for link in re.findall(r"\[[^\]]+\]\(([^)]+)\)", file.read_text()):
+                if not link.startswith(("https:", "http:", "#")):
+                    self.assertTrue((file.parent / link.split("#")[0]).exists(), (file, link))
+        before = self.snapshot()
+        before_directories = sorted(p.relative_to(self.target) for p in self.target.rglob("*")
+                                    if p.is_dir())
+        result = self.run_installer("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual(before_directories,
+                         sorted(p.relative_to(self.target) for p in self.target.rglob("*")
+                                if p.is_dir()))
+        self.assertIn("Already installed", result.stdout)
+
+    def test_dry_run_does_not_write(self) -> None:
+        result = self.run_installer("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+        for directory in PIPELINE_LEAVES:
+            self.assertIn(f"MKDIR {directory}", result.stdout)
+
+    def test_missing_uv_no_install_fails_without_writes(self) -> None:
+        (self.bin / "uv").unlink()
+        self.environment["PATH"] = str(self.bin)
+        result = self.run_installer("--yes", "--no-install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("uv is required but missing", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_missing_uv_dry_run_no_install_only_reports(self) -> None:
+        (self.bin / "uv").unlink()
+        self.environment["PATH"] = str(self.bin)
+        result = self.run_installer("--dry-run", "--no-install")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("uv missing", result.stdout)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_repeat_install_still_requires_uv(self) -> None:
+        self.assertEqual(self.run_installer("--yes").returncode, 0)
+        before = self.snapshot()
+        (self.bin / "uv").unlink()
+        self.environment["PATH"] = str(self.bin)
+        result = self.run_installer("--yes", "--no-install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("uv is required but missing", result.stderr)
+        self.assertEqual(before, self.snapshot())
+
+    def test_broken_uv_fails_before_project_writes(self) -> None:
+        (self.bin / "uv").write_text(f"#!{sys.executable}\nraise SystemExit(7)\n")
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exit status 7", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_existing_pipeline_content_preserved(self) -> None:
+        model = self.target / "pipelines/dbt/models/silver/staging/custom.sql"
+        model.parent.mkdir(parents=True)
+        model.write_bytes(b"select 1 as existing_model;\n")
+        result = self.run_installer("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(model.read_bytes(), b"select 1 as existing_model;\n")
+        for directory in PIPELINE_LEAVES:
+            self.assertTrue((self.target / directory).is_dir(), directory)
+
+    def test_missing_pipeline_directory_recreated_on_repeat_install(self) -> None:
+        self.assertEqual(self.run_installer("--yes").returncode, 0)
+        missing = self.target / PIPELINE_LEAVES[0]
+        missing.rmdir()
+        before = self.snapshot()
+        result = self.run_installer("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(missing.is_dir())
+        self.assertEqual(before, self.snapshot())
+        self.assertNotIn("Already installed", result.stdout)
+
+    def test_pipeline_file_conflict_aborts_before_writes(self) -> None:
+        conflict = self.target / "pipelines"
+        conflict.write_text("Existing file\n")
+        before = list(self.target.rglob("*"))
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a directory", result.stderr)
+        self.assertEqual(list(self.target.rglob("*")), before)
+        self.assertEqual(conflict.read_text(), "Existing file\n")
+
+    def test_pipeline_symlink_rejected_before_writes(self) -> None:
+        outside = Path(self.temporary.name) / "outside"
+        outside.mkdir()
+        pipelines = self.target / "pipelines"
+        pipelines.mkdir()
+        (pipelines / "dbt").symlink_to(outside, target_is_directory=True)
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(list(self.target.iterdir()), [pipelines])
+
+    def test_preserves_existing_instructions_and_unrelated_files(self) -> None:
+        github = self.target / ".github"
+        github.mkdir()
+        original = b"# Project rules\r\nKeep these rules.\r\n"
+        instructions = github / "copilot-instructions.md"
+        instructions.write_bytes(original)
+        (github / "github-app.yml").write_text("instructions: Keep app configuration\n")
+        result = self.run_installer("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(instructions.read_bytes().startswith(original))
+        self.assertEqual((github / "github-app.yml").read_text(),
+                         "instructions: Keep app configuration\n")
+        self.assertNotIn("## Editing this kit", instructions.read_text())
+
+    def test_conflict_aborts_before_any_write(self) -> None:
+        conflict = self.target / ".github/prompts/snowflake-sql-check.prompt.md"
+        conflict.parent.mkdir(parents=True)
+        conflict.write_text("My custom prompt\n")
+        before = self.snapshot()
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Conflicts found", result.stderr)
+        self.assertEqual(before, self.snapshot())
+        self.assertFalse((self.target / "pipelines").exists())
+
+    def test_modified_managed_instructions_are_not_replaced(self) -> None:
+        self.assertEqual(self.run_installer("--yes").returncode, 0)
+        file = self.target / ".github/copilot-instructions.md"
+        file.write_text(file.read_text().replace("## Skill guidance", "## Custom guidance"))
+        before = self.snapshot()
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before, self.snapshot())
+
+    def test_symlink_destination_rejected(self) -> None:
+        outside = Path(self.temporary.name) / "outside"
+        outside.mkdir()
+        (self.target / ".github").symlink_to(outside, target_is_directory=True)
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr)
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_noninteractive_requires_confirmation(self) -> None:
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--yes", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_duplicate_skill_discovery_root_rejected(self) -> None:
+        alternate = self.target / ".claude/skills/snowflake-data-governance"
+        alternate.mkdir(parents=True)
+        (alternate / "SKILL.md").write_text("Existing skill\n")
+        before = self.snapshot()
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("duplicate skill discovery root", result.stderr)
+        self.assertEqual(before, self.snapshot())
+
+    def test_source_and_missing_target_rejected(self) -> None:
+        for target in (ROOT, self.target / "missing"):
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--target", str(target), "--yes"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_shell_entrypoint(self) -> None:
+        result = subprocess.run(
+            ["bash", str(ROOT / "install.sh"), "--target", str(self.target), "--dry-run"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+
+class UvPrerequisiteTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="snowflake-uv-test-")
+        self.addCleanup(temporary.cleanup)
+        self.target = Path(temporary.name)
+        self.output = io.StringIO()
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(redirect_stdout(self.output))
+        stack.enter_context(patch.object(installer.sys, "platform", "darwin"))
+        self.which = stack.enter_context(patch.object(
+            installer.shutil, "which",
+            side_effect=lambda name: None if name == "uv" else f"/tools/{name}",
+        ))
+        self.run = stack.enter_context(patch.object(
+            installer.subprocess, "run",
+            return_value=subprocess.CompletedProcess([], 0, "uv 0.0-test\n", ""),
+        ))
+
+    def test_dry_run_does_not_execute_or_install_uv(self) -> None:
+        self.assertEqual(installer.install(self.target, True, True), 0)
+        self.assertIn("brew install uv", self.output.getvalue())
+        self.run.assert_not_called()
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_missing_uv_requires_confirmation(self) -> None:
+        with patch.object(installer.sys.stdin, "isatty", return_value=False):
+            with self.assertRaisesRegex(ValueError, "--yes"):
+                installer.install(self.target, False, False)
+        self.run.assert_not_called()
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_declining_plan_does_not_install_or_write(self) -> None:
+        with patch.object(installer.sys.stdin, "isatty", return_value=True):
+            with patch("builtins.input", return_value="n"):
+                self.assertEqual(installer.install(self.target, False, False), 0)
+        self.run.assert_not_called()
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_mac_install_verifies_before_project_writes(self) -> None:
+        available = False
+
+        def find(name: str) -> str | None:
+            return "/tools/uv" if name == "uv" and available else (
+                None if name == "uv" else f"/tools/{name}"
+            )
+
+        def execute(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            nonlocal available
+            self.assertEqual(list(self.target.iterdir()), [])
+            if command == ["brew", "install", "uv"]:
+                available = True
+            return subprocess.CompletedProcess(command, 0, "uv 0.0-test\n", "")
+
+        self.which.side_effect = find
+        self.run.side_effect = execute
+        self.assertEqual(installer.install(self.target, False, True), 0)
+        self.assertEqual([call.args[0] for call in self.run.call_args_list],
+                         [["brew", "install", "uv"], ["/tools/uv", "--version"]])
+        self.assertTrue((self.target / "pipelines/ingestion/bronze").is_dir())
+
+    def test_uv_install_failure_aborts_before_writes(self) -> None:
+        self.run.side_effect = subprocess.CalledProcessError(1, ["brew", "install", "uv"])
+        with self.assertRaises(subprocess.CalledProcessError):
+            installer.install(self.target, False, True)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_uv_not_found_after_install_is_an_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "executable was not found"):
+            installer.install(self.target, False, True)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_invalid_uv_version_is_an_error(self) -> None:
+        self.which.side_effect = lambda name: f"/tools/{name}"
+        self.run.return_value.stdout = "not uv"
+        with self.assertRaisesRegex(ValueError, "Unexpected uv --version"):
+            installer.install(self.target, False, True)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_existing_uv_is_verified_without_installing(self) -> None:
+        self.which.side_effect = lambda name: f"/tools/{name}"
+        self.assertEqual(installer.install(self.target, False, True, no_install=True), 0)
+        self.run.assert_called_once_with(
+            ["/tools/uv", "--version"], check=True, capture_output=True, text=True,
+        )
+
+    def test_conflicts_prevent_uv_installation(self) -> None:
+        (self.target / "pipelines").write_text("Conflict\n")
+        with self.assertRaisesRegex(ValueError, "not a directory"):
+            installer.install(self.target, False, True)
+        self.run.assert_not_called()
+
+    def test_mac_missing_homebrew_reports_manual_install(self) -> None:
+        self.which.side_effect = lambda name: None
+        with self.assertRaisesRegex(ValueError, "Install Homebrew or install uv manually"):
+            installer.install(self.target, False, True)
+        self.run.assert_not_called()
+
+    def test_linux_uses_official_installer_without_profile_changes(self) -> None:
+        with patch.object(installer.sys, "platform", "linux"):
+            executable = installer.install_uv()
+        commands = [call.args[0] for call in self.run.call_args_list]
+        self.assertEqual(commands[0][0], "curl")
+        self.assertEqual(commands[0][-1], "https://astral.sh/uv/install.sh")
+        self.assertEqual(commands[1][0], "sh")
+        environment = self.run.call_args_list[1].kwargs["env"]
+        self.assertEqual(environment["UV_NO_MODIFY_PATH"], "1")
+        self.assertEqual(environment["UV_INSTALL_DIR"], str(Path.home() / ".local/bin"))
+        self.assertNotIn("UV_UNMANAGED_INSTALL", environment)
+        self.assertFalse(Path(commands[1][1]).parent.exists())
+        self.assertEqual(executable, f"/tools/{Path.home() / '.local/bin/uv'}")
+
+    def test_linux_download_failure_never_runs_script(self) -> None:
+        self.run.side_effect = subprocess.CalledProcessError(22, ["curl"])
+        with patch.object(installer.sys, "platform", "linux"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                installer.install_uv()
+        self.assertEqual(self.run.call_count, 1)
+        command = self.run.call_args.args[0]
+        self.assertFalse(Path(command[command.index("--output") + 1]).parent.exists())
+
+    def test_linux_script_failure_cleans_up_and_stops(self) -> None:
+        self.run.side_effect = [
+            subprocess.CompletedProcess(["curl"], 0),
+            subprocess.CalledProcessError(1, ["sh"]),
+        ]
+        with patch.object(installer.sys, "platform", "linux"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                installer.install(self.target, False, True)
+        self.assertEqual(list(self.target.iterdir()), [])
+        script = Path(self.run.call_args.args[0][1])
+        self.assertFalse(script.parent.exists())
+
+    def test_linux_missing_curl_produces_manual_guidance(self) -> None:
+        self.which.side_effect = lambda name: None if name in {"uv", "curl"} else f"/tools/{name}"
+        with patch.object(installer.sys, "platform", "linux"):
+            with self.assertRaisesRegex(ValueError, "requires curl and sh"):
+                installer.install(self.target, False, True)
+        self.run.assert_not_called()
+
+    def test_unsupported_platform_reports_manual_install(self) -> None:
+        with patch.object(installer.sys, "platform", "win32"):
+            with self.assertRaisesRegex(ValueError, "Install uv manually"):
+                installer.install(self.target, False, True)
+        self.run.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

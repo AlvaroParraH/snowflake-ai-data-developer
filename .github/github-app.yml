@@ -1,5 +1,5 @@
 instructions: |
   Read .github/copilot-instructions.md for this project's Snowflake guidance
-  and safety rules. Use the relevant .github/skills entry and read its linked
-  full skill in skills/ before applying it. Do not connect to Snowflake for
+  and safety rules. Read the relevant full skill in
+  .github/skills/<skill-name>/SKILL.md before applying it. Do not connect to Snowflake for
   local documentation work.

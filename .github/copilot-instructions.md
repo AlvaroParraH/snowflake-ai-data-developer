@@ -6,32 +6,32 @@ environment layout, quality threshold, or data contract.
 
 ## Skill guidance
 
-Copilot discovers project skills in `.github/skills/`. Those entries direct
-you to full guidance in `skills/` at the project root. Read the relevant full
-skill before applying it; do not rely only on its description.
+Copilot discovers project skills in `.github/skills/`. Each skill's `SKILL.md`
+contains its discovery metadata and full guidance. Read the relevant skill
+before applying it; do not rely only on its description.
 
 - Naming, casing, quoting, qualification, or object names:
-  [naming conventions](../skills/snowflake-naming-conventions/SKILL.md).
+  [naming conventions](skills/snowflake-naming-conventions/SKILL.md).
 - Before Silver transformations or when investigating source types, nulls,
   dates, duplicates, or joins:
-  [Bronze profiler](../skills/snowflake-bronze-profiler/SKILL.md).
+  [Bronze profiler](skills/snowflake-bronze-profiler/SKILL.md).
 - Layer responsibilities, incremental processing, or orchestration:
-  [medallion architecture](../skills/snowflake-medallion-architecture/SKILL.md).
+  [medallion architecture](skills/snowflake-medallion-architecture/SKILL.md).
 - Quality rules, tests, thresholds, quarantine, or DMF monitoring:
-  [data quality](../skills/snowflake-data-quality/SKILL.md).
+  [data quality](skills/snowflake-data-quality/SKILL.md).
 - Ownership, consumer guarantees, schema evolution, or service objectives:
-  [data contracts](../skills/snowflake-data-contracts/SKILL.md).
+  [data contracts](skills/snowflake-data-contracts/SKILL.md).
 - dbt sources, models, tests, snapshots, or adapter configuration:
-  [dbt integration](../skills/snowflake-dbt-integration/SKILL.md).
+  [dbt integration](skills/snowflake-dbt-integration/SKILL.md).
 - Project scaffolding, folder structure, new pipeline file placement,
   Silver/Gold dbt paths, or Airflow DAG locations:
-  [project structure](../skills/snowflake-project-structure/SKILL.md).
+  [project structure](skills/snowflake-project-structure/SKILL.md).
   Preserve its agreed `pipelines/` layout in projects adopting it. Do not
   reorganize this skill kit or migrate existing projects automatically.
 - RBAC, database roles, object ownership, managed access schemas, grants,
   classification tags, masking, row access policies, stage permissions,
   audit/lineage, or governed sharing:
-  [data governance](../skills/snowflake-data-governance/SKILL.md).
+  [data governance](skills/snowflake-data-governance/SKILL.md).
 
 ## Safety and scope
 
@@ -56,13 +56,13 @@ skill before applying it; do not rely only on its description.
 
 ## Editing this kit
 
-Keep substantive guidance in `skills/`; keep `.github/skills/` entries as
-discovery instructions pointing to it. Preserve neutral Snowflake-focused
+Keep discovery metadata and substantive guidance together in each
+`.github/skills/<skill-name>/SKILL.md`. Preserve neutral Snowflake-focused
 branding in new files and leave external reference material untouched.
 Update the README and setup documentation when skill paths change.
 
 For documentation changes, check local links, YAML frontmatter/examples,
-fenced blocks, and that each discovery entry resolves to its full skill.
+fenced blocks, and that each skill's metadata matches its directory name.
 Review SQL examples against Snowflake/dbt documentation; do not execute them
 as a documentation check. This kit has no application build or dependency
 installation requirement.
