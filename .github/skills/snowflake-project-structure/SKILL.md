@@ -20,6 +20,12 @@ Snowflake, or deploy Airflow merely because this skill was loaded.
 
 ## Canonical layout
 
+The kit installer does not create pipeline folders. When explicitly requested,
+use [the initialization prompt](../../prompts/snowflake-init.prompt.md) or the
+installed [local script](../../../scripts/init_project.py) to preview and create
+the core pipeline directories only. This does not generate the illustrative
+application files below or migrate an existing layout.
+
 ```text
 snowflake-data-project/
 |-- README.md

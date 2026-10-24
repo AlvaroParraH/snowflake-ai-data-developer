@@ -55,6 +55,7 @@ No selected SQL files or missing tooling is reported explicitly, not as a
 successful validation.
 
 This prompt is manual guidance, not a pre-commit hook or required CI check.
+The installer enables a separate secret-scanning hook, not SQL enforcement.
 This documentation-only kit does not install SQLFluff. To use the prompt
 in a pipeline repository, copy it into that repository's `.github/prompts/`
 and provide the project's pinned tooling and configuration.
@@ -156,13 +157,27 @@ client-compatible authentication with your Snowflake administrator. OAuth client
 registration/callback/scopes must already be provisioned; dynamic registration is
 not supported by Snowflake-managed MCP.
 
+For OAuth, provide the administrator-provisioned public client ID through the
+setup prompt or `--mcp-oauth-client-id`. The installer writes
+`"oauth": {"clientId": "<approved-public-client-id>"}` in the Snowflake server
+entry and requires this value for OAuth setup. Client secrets must never be
+entered. Your administrator must confirm VS Code supports the registration's
+client type, callback and scopes; do not substitute a confidential client that
+requires a secret when the client supports only a public client ID.
+On first use, review VS Code's trust/sign-in flow; VS Code manages authorization
+and stored credentials. No token is written into MCP headers in OAuth mode, and
+the installer does not read Snowflake CLI connections, extract CLI tokens, or
+automatically select a different account/profile.
+
 For non-interactive use, provide all details explicitly:
 
 ```bash
 bash install.sh --target /path/to/existing-project --dry-run \
-  --mcp-endpoint https://approved.example/mcp --mcp-auth oauth --mcp-approved
+  --mcp-endpoint https://approved.example/mcp --mcp-auth oauth \
+  --mcp-oauth-client-id approved-public-client-id --mcp-approved
 bash install.sh --target /path/to/existing-project --yes \
-  --mcp-endpoint https://approved.example/mcp --mcp-auth oauth --mcp-approved
+  --mcp-endpoint https://approved.example/mcp --mcp-auth oauth \
+  --mcp-oauth-client-id approved-public-client-id --mcp-approved
 ```
 
 The endpoint above is illustrative; use the exact approved endpoint.
@@ -192,7 +207,75 @@ Configuration does not enforce a tool allowlist or establish server-side grants.
 Without endpoint details, MCP is explicitly deferred; the setup prompt remains
 available. No placeholder endpoint is written.
 
-The installer also creates the agreed pipeline directory layout by default:
+##### Git pre-commit secret scanning
+
+The installer copies `.githooks/pre-commit` and `scripts/scan_secrets.py`.
+After approval, it inspects the target Git repository's active hook directory,
+honoring `core.hooksPath` without changing it. It enables the launcher there,
+with executable permissions. Existing matching launchers are reused; existing
+different hooks (including third-party hook frameworks) stop activation before
+uv/environment/project writes. Manually integrate the scanner with the existing
+hook, or use `--skip-hooks` to keep active hooks unchanged. Other hooks are not
+modified. Installing into a nested folder of a parent repository requires
+choosing the Git root or explicitly skipping hook activation.
+
+A non-Git project receives the assets but reports activation as deferred.
+After `git init`, rerun the installer, or copy `.githooks/pre-commit` to the
+repository's active hook directory and mark it executable after reviewing conflicts.
+The kit repository uses the same hook. No Git repository is initialized implicitly.
+Dry runs do not execute Git inspection commands or change hook permissions/config:
+hook compatibility inspection is explicitly pending until an actual run.
+
+The Python standard-library scanner reads full staged blobs via their object IDs;
+unstaged content is not used. Added/modified/copied/renamed paths are scanned,
+deleted paths are ignored, and spaces/newlines in paths are supported. Credential
+patterns include Snowflake/generic password/token/client-secret assignments,
+private keys, JWTs, GitHub tokens and AWS access keys. Environment references
+and public OAuth client IDs are not credentials. No file subtree is automatically
+exempted. Error output contains only escaped paths, line numbers and rule labels,
+not matched values; index-reading errors fail closed.
+
+This pattern-based safeguard has false positives and false negatives and can be
+bypassed locally; it is not a substitute for CI secret scanning or credential
+rotation. Remove secrets from staged content and rotate any real exposed values.
+No SQL linting is included in this hook; use `/snowflake-sql-check` separately.
+
+##### Initialize project folders separately
+
+The installer adds `/snowflake-init` and `scripts/init_project.py`; it does not
+create pipeline folders. After adopting the kit, invoke `/snowflake-init` in
+Copilot Chat or run the script from the target project's root:
+
+```bash
+python3 scripts/init_project.py --target /path/to/existing-project --dry-run
+python3 scripts/init_project.py --target /path/to/existing-project
+```
+
+The script requires only Python 3.10+, not uv, Git, a virtual environment or
+network access. It previews the complete plan and requires confirmation before
+creating folders; use `--yes` for explicit non-interactive approval.
+Before planning creation, the script detects local project state and reports
+per-signal evidence:
+
+- **Greenfield:** no known project signals found. This does not necessarily mean
+  an empty directory; installed kit assets, README, Git metadata, MCP settings,
+  `.venv` and empty code folders do not count.
+- **Brownfield:** `snowflake.yml`, `snowflake.yaml`, root or
+  `pipelines/dbt/dbt_project.yml`, `docs/project-profile.md`, or populated
+  `src/`, `pipelines/`, `models/`, `dags/`, `bronze/`, `silver/`, `gold/`.
+
+Use `--detect-only` to report state without planning or creating folders.
+Detection inspects paths only, not configuration values or account resources.
+Unrecognized layouts remain possible; inspect the evidence before proceeding.
+In `/snowflake-init`, brownfield detection offers a read-only local layout review
+(recommended), explicit additive creation, or cancellation. It does not invoke a
+Snowflake audit or create a project profile.
+For approved additive creation, use `--allow-existing` with the preview and
+actual command. `--yes` alone cannot approve a brownfield layout change.
+No force-greenfield/overwrite escape hatch is provided. Existing files are
+never moved, replaced or deleted.
+
+Initialization creates this agreed pipeline layout:
 
 ```text
 pipelines/
@@ -205,25 +288,32 @@ pipelines/
 `-- orchestration/airflow/dags/
 ```
 
-Missing folders appear as `MKDIR` in the preview. Existing folders and their
+Missing folders appear as `MKDIR` in the initialization preview. Existing folders and their
 contents are preserved; files blocking a required folder or symlink destinations
-stop installation before any writes. Repeat runs restore missing folders.
-The installer does not move existing pipelines or generate models, DAGs,
+stop initialization before any writes. Repeat initialization restores missing
+folders; rerunning the installer does not. The script refuses the kit checkout,
+home and filesystem root. For a project using another layout, explicitly approve
+adding this parallel layout rather than assuming a migration.
+Neither installation nor initialization moves existing pipelines or generates models, DAGs,
 `dbt_project.yml`, Python manifests, or pipeline runtime configuration. These empty
 code folders are not a runnable project and are not tracked by Git until files
-are added. `--dry-run` creates neither folders nor files.
+are added. Initialization `--dry-run` creates neither folders nor files.
+No starter files, `.gitkeep`, Git initialization, account auditing, Snowflake
+connections or deployment are performed. Filesystem failures report partial
+directory operations; inspect the target before retrying.
 
 Installed assets:
 
 - All eight full skills under `.github/skills/`, including discovery metadata.
-- Both `.github/prompts/` workflows and supporting Markdown/SVG files under
+- `.githooks/pre-commit` and `scripts/scan_secrets.py` for staged secret scanning.
+- All three `.github/prompts/` workflows, `scripts/init_project.py`, and supporting Markdown/SVG files under
   `docs/`, preserving relative links.
 - A marked Snowflake guidance block appended to
   `.github/copilot-instructions.md`. Existing project text is preserved.
   Kit-maintenance instructions are not copied into application instructions.
 
-Besides the kit assets, the installer creates the pipeline folders and `.venv`
-by default, and optionally creates/merges `.vscode/mcp.json`. It does not
+Besides the kit assets, the installer creates `.venv` by default, and optionally
+creates/merges `.vscode/mcp.json`. Pipeline creation is a separate explicit step. It does not
 overwrite README files, install project dependencies, or access Snowflake. The only optional
 non-project change is the explicitly approved uv installation described above;
 no assistant home configuration or shell profiles are changed.
@@ -235,7 +325,7 @@ error before writing. There is no force-overwrite mode: compare the source
 and destination, manually merge or back up/move the specific conflicting
 asset, and rerun. Do not delete the target project. Symlink destinations are
 rejected. A filesystem failure during writes can leave a partial install;
-the error reports completed file writes and pipeline directory operations.
+the error reports completed file writes.
 Inspect the target and rerun
 after resolving the failure; already identical assets will be skipped.
 
@@ -296,7 +386,7 @@ credentials, database, dbt installation, or application build is required.
 For installer code changes, run the standard-library integration tests:
 
 ```bash
-python3 -B -m unittest discover -s tests -p 'test_installer.py' -v
+python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
 ## Optional Snowflake MCP guidance

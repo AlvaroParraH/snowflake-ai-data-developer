@@ -16,21 +16,6 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 START = b"<!-- snowflake-ai-data-developer:start -->"
 END = b"<!-- snowflake-ai-data-developer:end -->"
-PIPELINE_DIRECTORIES = tuple(map(Path, (
-    "pipelines",
-    "pipelines/ingestion",
-    "pipelines/ingestion/bronze",
-    "pipelines/dbt",
-    "pipelines/dbt/models",
-    "pipelines/dbt/models/silver",
-    "pipelines/dbt/models/silver/staging",
-    "pipelines/dbt/models/silver/intermediate",
-    "pipelines/dbt/models/gold",
-    "pipelines/dbt/models/gold/marts",
-    "pipelines/orchestration",
-    "pipelines/orchestration/airflow",
-    "pipelines/orchestration/airflow/dags",
-)))
 
 
 def uv_install_plan() -> str:
@@ -108,6 +93,12 @@ def payloads() -> dict[Path, bytes]:
     }
     if not skills:
         raise ValueError("No skills found under .github/skills/.")
+    for relative in (Path(".githooks/pre-commit"), Path("scripts/scan_secrets.py"),
+                     Path("scripts/init_project.py")):
+        source = ROOT / relative
+        if source.is_symlink() or not source.is_file():
+            raise ValueError(f"Missing or symlinked script/hook asset: {relative}")
+        files[relative] = source.read_bytes()
     return files
 
 
@@ -151,7 +142,8 @@ def invalid_json_constant(value: str) -> None:
     raise ValueError("Non-finite JSON value; merge MCP configuration manually.")
 
 
-def mcp_content(existing: bytes | None, endpoint: str, authentication: str) -> bytes:
+def mcp_content(existing: bytes | None, endpoint: str, authentication: str,
+                oauth_client_id: str | None = None) -> bytes:
     url = urlsplit(endpoint)
     if (url.scheme != "https" or not url.hostname or url.username or url.password
             or url.query or url.fragment or any(c.isspace() for c in endpoint)):
@@ -172,6 +164,14 @@ def mcp_content(existing: bytes | None, endpoint: str, authentication: str) -> b
     if not isinstance(servers, dict):
         raise ValueError("MCP servers must be a JSON object.")
     entry: dict[str, object] = {"type": "http", "url": endpoint}
+    if authentication == "oauth":
+        if (not oauth_client_id or not oauth_client_id.strip()
+                or any(c.isspace() for c in oauth_client_id)):
+            raise ValueError("OAuth requires the administrator-provisioned public client ID "
+                             "(--mcp-oauth-client-id), not a client secret.")
+        entry["oauth"] = {"clientId": oauth_client_id}
+    elif oauth_client_id is not None:
+        raise ValueError("--mcp-oauth-client-id requires --mcp-auth oauth.")
     if authentication == "bearer":
         entry["headers"] = {"Authorization": "Bearer ${env:SNOWFLAKE_MCP_TOKEN}"}
     if "snowflake" in servers and servers["snowflake"] != entry:
@@ -217,9 +217,59 @@ def verify_environment(target: Path) -> None:
     print(f"Verified Python environment: {target / '.venv'} (no dependencies installed).")
 
 
+def hook_destination(target: Path, git: str) -> Path | None:
+    probe = subprocess.run([git, "-C", str(target), "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True)
+    if probe.returncode:
+        if (target / ".git").exists():
+            raise ValueError("Cannot inspect target Git repository; repair it before installing hooks.")
+        print("Pre-commit hook: target is not a Git repository; assets copied, activation deferred.")
+        return None
+    if Path(probe.stdout.strip()).resolve() != target.resolve():
+        raise ValueError("Target is inside a parent Git repository. Choose its root or --skip-hooks.")
+    configured = subprocess.run([git, "-C", str(target), "config", "--path", "--get",
+                                 "core.hooksPath"], capture_output=True, text=True)
+    if configured.returncode not in {0, 1}:
+        raise ValueError("Cannot read core.hooksPath; hook installation stopped.")
+    if configured.returncode == 0:
+        directory = Path(configured.stdout.strip())
+        if not directory.is_absolute():
+            directory = target / directory
+    else:
+        result = subprocess.run([git, "-C", str(target), "rev-parse", "--git-path", "hooks"],
+                                check=True, capture_output=True, text=True)
+        directory = Path(result.stdout.strip())
+        if not directory.is_absolute():
+            directory = target / directory
+    destination = directory / "pre-commit"
+    for component in (destination, *destination.parents):
+        if component.is_symlink():
+            raise ValueError("Symlink in active Git hook path; merge the hook manually or --skip-hooks.")
+    content = (ROOT / ".githooks/pre-commit").read_bytes()
+    if destination.exists() and (not destination.is_file()
+                                 or destination.read_bytes() != content):
+        raise ValueError("An existing pre-commit hook differs. Preserve it and manually chain the "
+                         "secret scanner, or rerun with --skip-hooks. No hook overwritten.")
+    return destination
+
+
+def activate_hook(destination: Path) -> None:
+    content = (ROOT / ".githooks/pre-commit").read_bytes()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        if destination.is_symlink() or destination.read_bytes() != content:
+            raise ValueError("Active hook changed after preview; hook not overwritten.")
+    else:
+        with destination.open("xb") as stream:
+            stream.write(content)
+    destination.chmod(destination.stat().st_mode | 0o111)
+    print(f"Secret-scanning pre-commit hook enabled: {destination}")
+
+
 def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = False,
             *, skip_venv: bool = False, mcp_endpoint: str | None = None,
-            mcp_auth: str | None = None, mcp_approved: bool = False) -> int:
+            mcp_auth: str | None = None, mcp_approved: bool = False,
+            mcp_oauth_client_id: str | None = None, skip_hooks: bool = False) -> int:
     if not target.is_dir():
         raise ValueError("Target must be an existing project directory.")
     target = target.resolve()
@@ -245,22 +295,13 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
         if config.exists() and not config.is_file():
             raise ValueError("MCP configuration is not a regular file.")
         mcp_original = config.read_bytes() if config.exists() else None
-        files[mcp] = mcp_content(mcp_original, mcp_endpoint, mcp_auth or "")
-    elif mcp_auth is not None or mcp_approved:
+        files[mcp] = mcp_content(mcp_original, mcp_endpoint, mcp_auth or "", mcp_oauth_client_id)
+    elif mcp_auth is not None or mcp_approved or mcp_oauth_client_id is not None:
         raise ValueError("MCP authentication/approval requires --mcp-endpoint or --setup-mcp.")
     create_environment = not skip_venv and needs_environment(target)
 
     changes: list[tuple[Path, bytes, bytes | None]] = []
     conflicts: list[str] = []
-    directories: list[Path] = []
-    for relative in PIPELINE_DIRECTORIES:
-        check_destination(target, relative)
-        destination = target / relative
-        if destination.exists():
-            if not destination.is_dir():
-                conflicts.append(f"{relative}: not a directory")
-        else:
-            directories.append(relative)
     skill_names = {
         relative.parent.name
         for relative in files
@@ -295,6 +336,9 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
         raise ValueError("Git is required. Install Git manually and add it to PATH; "
                          "no tools or project files changed.")
     print(f"Prerequisite: Git found at {git}; will verify with git --version.")
+    print("Pre-commit: skipped (--skip-hooks)." if skip_hooks else
+          "Pre-commit: install staged secret scanner; inspect active hook after confirmation. "
+          "Existing different hooks will not be replaced. No SQL linting.")
     if skip_venv:
         print("Python environment: skipped (--skip-venv); existing project tooling preserved.")
     else:
@@ -312,14 +356,13 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
                   "the installer never reads or stores it.")
         else:
             print("Complete the administrator-provisioned OAuth flow in VS Code later. "
-                  "Static OAuth client details, if needed, require separate administrator setup.")
-    for relative in directories:
-        print(f"  MKDIR {relative}")
+                  "The public client ID is configured; VS Code manages OAuth credentials. "
+                  "Snowflake CLI profiles and ambient bearer tokens are not reused.")
+    print("Pipeline folders: deferred. Run /snowflake-init after installing the kit.")
     for relative, _, before in changes:
         action = "MERGE" if relative == mcp else "APPEND"
         print(f"  {action if before is not None else 'CREATE'} {relative}")
-    print(f"Unchanged: {unchanged}; planned writes: {len(changes)}; "
-          f"planned directories: {len(directories)}")
+    print(f"Unchanged: {unchanged}; planned writes: {len(changes)}")
     if conflicts:
         raise ValueError(
             "Conflicts found; no files written. Review/merge these files manually, then rerun:\n  "
@@ -339,7 +382,7 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
     if not uv and no_install:
         raise ValueError("uv is required but missing. Install uv and add it to PATH, "
                          "or rerun without --no-install. No project files written.")
-    if not assume_yes and (changes or directories or not uv or create_environment):
+    if not assume_yes and (changes or not uv or create_environment or not skip_hooks):
         if not sys.stdin.isatty():
             raise ValueError("Non-interactive installation requires --yes; preview with --dry-run.")
         if input("Approve this plan, including environment/MCP setup and uv installation if listed? [y/N] "
@@ -347,17 +390,19 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
             print("Cancelled. No files written.")
             return 0
     verify_git(git)
+    hook = None if skip_hooks else hook_destination(target, git)
     if not uv:
         uv = install_uv()
     verify_uv(uv)
     if not skip_venv and not create_environment:
         verify_environment(target)
-    if not changes and not directories and not create_environment:
+    if not changes and not create_environment:
+        if hook is not None:
+            activate_hook(hook)
         print("Already installed; no files changed.")
         return 0
 
     written = 0
-    created = 0
     try:
         if create_environment:
             check_destination(target, Path(".venv"))
@@ -369,10 +414,6 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
                 check=True, stdin=subprocess.DEVNULL, env=environment, cwd=target,
             )
             verify_environment(target)
-        for relative in directories:
-            check_destination(target, relative)
-            (target / relative).mkdir(exist_ok=True)
-            created += 1
         for relative, content, before in changes:
             check_destination(target, relative)
             destination = target / relative
@@ -398,18 +439,21 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
                     with destination.open("ab") as stream:
                         stream.write(content[len(before):])
             written += 1
+        if hook is not None:
+            activate_hook(hook)
     except (OSError, ValueError, subprocess.CalledProcessError):
-        print(f"Installation interrupted after {written} file writes and {created} directory "
-              "operations; inspect the target before retrying.",
+        print(f"Installation interrupted after {written} file writes; "
+              "inspect the target before retrying.",
               file=sys.stderr)
         if create_environment:
             print("Environment setup was attempted; .venv may remain. Inspect/repair it manually "
                   "before retrying. It will not be overwritten.", file=sys.stderr)
         raise
-    print(f"Installed {written} files; created {created} pipeline directories. "
+    print(f"Installed {written} files. "
           "Prerequisites verified. No project dependencies installed or Snowflake connections made.")
     print("Open the target as the VS Code workspace root and reload to check Copilot discovery.")
-    print("Expected: eight snowflake-* skills, /snowflake-mcp-setup and /snowflake-sql-check.")
+    print("Expected: eight snowflake-* skills, /snowflake-init, /snowflake-mcp-setup "
+          "and /snowflake-sql-check. Run /snowflake-init separately to create pipeline folders.")
     if not skip_venv:
         print(f"Select {environment_python(target)} as the project's VS Code interpreter.")
     if mcp_endpoint is not None:
@@ -421,7 +465,7 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Install Snowflake skills, prompts, documentation and Copilot instructions "
-        "and create the medallion/dbt/Airflow folder layout in an existing project. "
+        "with a separate /snowflake-init folder-scaffolding workflow. "
         "Never overwrites conflicting files."
     )
     parser.add_argument("--target", type=Path, required=True, help="Existing target project root")
@@ -439,6 +483,10 @@ def main() -> int:
                         help="Administrator-confirmed client-compatible authentication method")
     parser.add_argument("--mcp-approved", action="store_true",
                         help="Confirm the endpoint, exposed tools and client authentication are approved")
+    parser.add_argument("--mcp-oauth-client-id",
+                        help="Administrator-provisioned OAuth public client ID (never a secret)")
+    parser.add_argument("--skip-hooks", action="store_true",
+                        help="Copy scanner assets but leave active Git hooks unchanged")
     args = parser.parse_args()
     if sys.version_info < (3, 10):
         parser.error("Python 3.10+ is required.")
@@ -453,13 +501,18 @@ def main() -> int:
             else:
                 args.mcp_endpoint = input("Administrator-approved HTTPS MCP endpoint (no secrets): ").strip()
                 args.mcp_auth = input("Administrator-confirmed authentication (oauth/bearer): ").strip()
+                if args.mcp_auth == "oauth":
+                    args.mcp_oauth_client_id = input(
+                        "Administrator-provisioned public OAuth client ID (not a secret): "
+                    ).strip()
                 args.mcp_approved = input(
                     "Have the endpoint, exposed tools and VS Code authentication compatibility "
                     "been reviewed and approved by your administrator? [y/N] "
                 ).strip().lower() in {"y", "yes"}
         return install(args.target.expanduser(), args.dry_run, args.yes, args.no_install,
                        skip_venv=args.skip_venv, mcp_endpoint=args.mcp_endpoint,
-                       mcp_auth=args.mcp_auth, mcp_approved=args.mcp_approved)
+                       mcp_auth=args.mcp_auth, mcp_approved=args.mcp_approved,
+                       mcp_oauth_client_id=args.mcp_oauth_client_id, skip_hooks=args.skip_hooks)
     except (OSError, ValueError, EOFError, subprocess.CalledProcessError) as error:
         print(f"Error: {error}", file=sys.stderr)
         if isinstance(error, subprocess.CalledProcessError) and error.stderr:

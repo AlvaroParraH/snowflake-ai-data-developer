@@ -66,12 +66,34 @@ actual run before project writes. A dry run only reports prerequisites and
 planned changes: it downloads, executes and installs nothing.
 
 The installer copies all eight full skills directly into `.github/skills/`,
-both prompts and their supporting documentation.
+all three prompts, the local initialization script and their supporting documentation.
 It appends a marked guidance block to existing Copilot instructions without
 changing the original text. Conflicting files stop installation before writes;
 identical files are left alone, making repeat installations safe.
 
-It also creates the following pipeline folders, preserving existing contents:
+### Initialize pipeline folders separately
+
+Installation does not create or restore pipeline folders. After installation,
+run `/snowflake-init` in Copilot Chat, or run the installed script from the
+target project:
+
+```bash
+python3 scripts/init_project.py --target /path/to/your-project --dry-run
+python3 scripts/init_project.py --target /path/to/your-project
+```
+
+Review the preview and confirm creation (or pass `--yes` for automation).
+Initialization first reports **greenfield** (no existing project signals) or
+**brownfield** (existing local Snowflake/dbt configuration, project profile, or
+populated code folders), with the evidence. Installed kit assets and an empty
+pipeline layout alone do not mark a project as brownfield.
+Use `--detect-only` for a read-only classification. Existing projects require
+explicit `--allow-existing` approval before missing folders can be added;
+`--yes` alone does not bypass that check. In Copilot, `/snowflake-init` offers
+local layout review, additive folder creation, or cancellation for brownfield
+projects. No account audit or overwrite mode is included.
+
+This separate initialization creates the following folders, preserving existing contents:
 
 ```text
 pipelines/
@@ -112,6 +134,11 @@ bash install.sh --target /path/to/existing-project --setup-mcp
 
 Supply an exact administrator-approved HTTPS endpoint, choose `oauth` or `bearer`,
 and confirm the exposed tools and VS Code authentication path are approved.
+OAuth is recommended: supply the administrator-provisioned **public client ID**
+when prompted (or use `--mcp-oauth-client-id`). The config stores
+`oauth.clientId`, not a secret or token. VS Code handles authorization and
+credential storage on first use. No Snowflake CLI profile is read, no CLI tokens
+are extracted, and no bearer header is configured in OAuth mode.
 The installer creates or merges `.vscode/mcp.json`, preserving unrelated server
 entries. Conflicting Snowflake entries or JSONC/comments require a manual merge.
 OAuth must already be provisioned for the client; Snowflake-managed MCP does not
@@ -130,6 +157,23 @@ The installer does not install project dependencies or modify personal assistant
 See [installation details](docs/copilot-setup.md#install-into-another-project)
 for conflict handling and discovery verification.
 
+### Git pre-commit secret scanning
+
+The kit includes a [pre-commit launcher](.githooks/pre-commit) and a
+[standard-library scanner](scripts/scan_secrets.py). Installation copies both
+assets and enables the hook in a target Git repository's active hook directory
+after approval, without changing `core.hooksPath`. The kit repository also uses
+this hook. Existing different hooks are never overwritten: manually chain the
+scanner or use `--skip-hooks` to leave hook activation unchanged.
+Non-Git targets receive the assets, with activation explicitly deferred.
+
+The scanner checks staged blobs, including renamed files, for likely passwords,
+tokens, private keys and other credential patterns. It reports paths, line
+numbers and rule labels, never secret values. It blocks on scanning errors.
+This is heuristic protection, not proof that all secrets were detected, and local
+hooks can be bypassed. Rotate exposed real credentials.
+It does not install/run SQLFluff; `/snowflake-sql-check` remains a separate workflow.
+
 ## Visual reference
 
 [Snowflake medallion + dbt project structure](docs/references/snowflake-medallion-dbt-project-structure.svg)
@@ -137,7 +181,8 @@ combines medallion and dbt guidance into a repository layout and data-flow
 diagram. The [project-structure skill](.github/skills/snowflake-project-structure/SKILL.md)
 preserves this agreed convention for new pipelines adopting it. The diagram
 is guidance, not a required Snowflake database/schema layout; the installer
-creates only the core pipeline folders shown above.
+installs `/snowflake-init` to create only the core pipeline folders shown above,
+when explicitly invoked.
 The diagram groups ingestion, dbt and Airflow orchestration under `pipelines/`:
 Bronze ingestion code in `pipelines/ingestion/bronze/`, Silver models
 in `pipelines/dbt/models/silver/{staging,intermediate}/`, Gold models in
@@ -162,6 +207,8 @@ both discovery metadata and full guidance; there is no separate root-level
 skill copy. There are eight skills, listed above.
 
 Workspace prompts include
+[`/snowflake-init`](.github/prompts/snowflake-init.prompt.md) for explicitly
+creating the agreed empty pipeline folders,
 [`/snowflake-mcp-setup`](.github/prompts/snowflake-mcp-setup.prompt.md) for
 approved MCP client configuration and
 [`/snowflake-sql-check`](.github/prompts/snowflake-sql-check.prompt.md) for

@@ -21,6 +21,10 @@ VS Code workspace configuration after the administrator has approved the
 endpoint, exposed tools and client authentication compatibility. It supports
 strict JSON merges only; use this workflow for JSONC or complex OAuth setup.
 Neither path starts a server or tests a Snowflake connection.
+For OAuth the installer requires `--mcp-oauth-client-id` (or the public client ID
+entered at setup time), writing the VS Code `oauth.clientId` field. VS Code
+manages sign-in and token storage; do not extract tokens from Snowflake CLI
+profiles or add an Authorization header to this OAuth entry.
 
 ## Procedure
 
@@ -37,6 +41,11 @@ Neither path starts a server or tests a Snowflake connection.
    provisioned the OAuth client registration/callback/scopes or other
    explicitly approved authentication path for this client. Snowflake's
    managed MCP server does not support dynamic OAuth client registration.
+   For VS Code, obtain the administrator-provisioned public client ID and use
+   `oauth: { "clientId": "<approved-public-client-id>" }` in its server entry.
+   Confirm that the client type and callbacks are compatible with VS Code;
+   never ask for an OAuth client secret or assume that a CLI connection profile
+   can authenticate a managed HTTP MCP endpoint.
    If compatibility is unknown or unsupported, stop and explain what the
    administrator/client owner must resolve. Never work around this with a
    committed token, bearer string, or credential in a config file.
@@ -105,7 +114,10 @@ VS Code:
   "servers": {
     "snowflake": {
       "type": "http",
-      "url": "<administrator_provided_https_endpoint>"
+      "url": "<administrator_provided_https_endpoint>",
+      "oauth": {
+        "clientId": "<administrator_provided_public_client_id>"
+      }
     }
   }
 }

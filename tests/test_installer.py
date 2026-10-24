@@ -49,7 +49,9 @@ class InstallerTests(unittest.TestCase):
         )
         uv.chmod(0o755)
         git = self.bin / "git"
-        git.write_text(f"#!{sys.executable}\nprint('git version test')\n")
+        git.write_text(f"#!{sys.executable}\nimport sys\n"
+                       "if sys.argv[1:] == ['--version']: print('git version test')\n"
+                       "else: raise SystemExit(128)\n")
         git.chmod(0o755)
         self.environment = dict(os.environ, PATH=str(self.bin) + os.pathsep
                                 + os.environ.get("PATH", ""))
@@ -82,14 +84,13 @@ class InstallerTests(unittest.TestCase):
             self.assertRegex(content, r'\A---\nname: [^\n]+\ndescription: "[^\n]+"\n---\n')
             self.assertGreater(len(content.splitlines()), 50, skill)
             self.assertNotIn("../../../skills/", content)
-        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 2)
+        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 3)
+        self.assertTrue((self.target / "scripts/init_project.py").is_file())
         self.assertFalse((self.target / ".github/github-app.yml").exists())
         self.assertFalse((self.target / "pyproject.toml").exists())
         self.assertTrue((self.target / ".venv/pyvenv.cfg").is_file())
         self.assertFalse((self.target / "uv.lock").exists())
-        for directory in PIPELINE_LEAVES:
-            self.assertTrue((self.target / directory).is_dir(), directory)
-        self.assertEqual(list((self.target / "pipelines").rglob("*.*")), [])
+        self.assertFalse((self.target / "pipelines").exists())
         for file in self.target.rglob("*.md"):
             for link in re.findall(r"\[[^\]]+\]\(([^)]+)\)", file.read_text()):
                 if not link.startswith(("https:", "http:", "#")):
@@ -109,8 +110,8 @@ class InstallerTests(unittest.TestCase):
         result = self.run_installer("--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(list(self.target.iterdir()), [])
-        for directory in PIPELINE_LEAVES:
-            self.assertIn(f"MKDIR {directory}", result.stdout)
+        self.assertIn("Run /snowflake-init", result.stdout)
+        self.assertNotIn("MKDIR pipelines", result.stdout)
 
     def test_missing_uv_no_install_fails_without_writes(self) -> None:
         (self.bin / "uv").unlink()
@@ -203,7 +204,9 @@ class InstallerTests(unittest.TestCase):
 
     def mcp_arguments(self, authentication: str = "oauth") -> tuple[str, ...]:
         return ("--mcp-endpoint", "https://example.snowflakecomputing.com/approved/mcp",
-                "--mcp-auth", authentication, "--mcp-approved")
+                "--mcp-auth", authentication,
+                *(("--mcp-oauth-client-id", "approved-public-client") if authentication == "oauth" else ()),
+                "--mcp-approved")
 
     def test_mcp_oauth_configuration_and_idempotency(self) -> None:
         result = self.run_installer("--yes", *self.mcp_arguments())
@@ -211,7 +214,8 @@ class InstallerTests(unittest.TestCase):
         config = json.loads((self.target / ".vscode/mcp.json").read_text())
         self.assertEqual(config["servers"]["snowflake"],
                          {"type": "http",
-                          "url": "https://example.snowflakecomputing.com/approved/mcp"})
+                          "url": "https://example.snowflakecomputing.com/approved/mcp",
+                          "oauth": {"clientId": "approved-public-client"}})
         before = self.snapshot()
         result = self.run_installer("--yes", *self.mcp_arguments())
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -300,13 +304,21 @@ class InstallerTests(unittest.TestCase):
             str(SCRIPT), "--target", str(self.target), "--setup-mcp",
         ]), patch.object(installer.sys.stdin, "isatty", return_value=True), patch(
             "builtins.input", side_effect=[
-                "https://approved.example/mcp", "oauth", "yes",
+                "https://approved.example/mcp", "oauth", "approved-public-client", "yes",
             ],
         ), patch.object(installer, "install", return_value=0) as install:
             self.assertEqual(installer.main(), 0)
         self.assertEqual(install.call_args.kwargs["mcp_endpoint"], "https://approved.example/mcp")
         self.assertEqual(install.call_args.kwargs["mcp_auth"], "oauth")
         self.assertTrue(install.call_args.kwargs["mcp_approved"])
+        self.assertEqual(install.call_args.kwargs["mcp_oauth_client_id"], "approved-public-client")
+
+    def test_oauth_requires_public_client_id(self) -> None:
+        result = self.run_installer("--yes", "--mcp-endpoint", "https://approved.example/mcp",
+                                    "--mcp-auth", "oauth", "--mcp-approved")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--mcp-oauth-client-id", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
 
     def test_existing_pipeline_content_preserved(self) -> None:
         model = self.target / "pipelines/dbt/models/silver/staging/custom.sql"
@@ -315,41 +327,45 @@ class InstallerTests(unittest.TestCase):
         result = self.run_installer("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(model.read_bytes(), b"select 1 as existing_model;\n")
+        self.assertFalse((self.target / "pipelines/ingestion").exists())
+
+    def test_installed_initializer_creates_folders_only_when_run(self) -> None:
+        self.assertEqual(self.run_installer("--yes").returncode, 0)
+        self.assertFalse((self.target / "pipelines").exists())
+        before = self.snapshot()
+        initialized = subprocess.run(
+            [sys.executable, str(self.target / "scripts/init_project.py"),
+             "--target", str(self.target), "--yes"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
         for directory in PIPELINE_LEAVES:
             self.assertTrue((self.target / directory).is_dir(), directory)
-
-    def test_missing_pipeline_directory_recreated_on_repeat_install(self) -> None:
-        self.assertEqual(self.run_installer("--yes").returncode, 0)
+        self.assertEqual(before, self.snapshot())
         missing = self.target / PIPELINE_LEAVES[0]
         missing.rmdir()
-        before = self.snapshot()
         result = self.run_installer("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(missing.is_dir())
+        self.assertFalse(missing.exists())
         self.assertEqual(before, self.snapshot())
-        self.assertNotIn("Already installed", result.stdout)
 
-    def test_pipeline_file_conflict_aborts_before_writes(self) -> None:
+    def test_installer_leaves_pipeline_file_untouched(self) -> None:
         conflict = self.target / "pipelines"
         conflict.write_text("Existing file\n")
-        before = list(self.target.rglob("*"))
         result = self.run_installer("--yes")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("not a directory", result.stderr)
-        self.assertEqual(list(self.target.rglob("*")), before)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(conflict.read_text(), "Existing file\n")
 
-    def test_pipeline_symlink_rejected_before_writes(self) -> None:
+    def test_installer_does_not_follow_pipeline_symlinks(self) -> None:
         outside = Path(self.temporary.name) / "outside"
         outside.mkdir()
         pipelines = self.target / "pipelines"
         pipelines.mkdir()
         (pipelines / "dbt").symlink_to(outside, target_is_directory=True)
         result = self.run_installer("--yes")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("symlink", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(list(outside.iterdir()), [])
-        self.assertEqual(list(self.target.iterdir()), [pipelines])
+        self.assertTrue((pipelines / "dbt").is_symlink())
 
     def test_preserves_existing_instructions_and_unrelated_files(self) -> None:
         github = self.target / ".github"
@@ -438,6 +454,7 @@ class UvPrerequisiteTests(unittest.TestCase):
         stack.enter_context(redirect_stdout(self.output))
         stack.enter_context(patch.object(installer.sys, "platform", "darwin"))
         stack.enter_context(patch.object(installer, "verify_git"))
+        stack.enter_context(patch.object(installer, "hook_destination", return_value=None))
         stack.enter_context(patch.object(installer, "needs_environment", return_value=False))
         stack.enter_context(patch.object(installer, "verify_environment"))
         self.which = stack.enter_context(patch.object(
@@ -489,7 +506,7 @@ class UvPrerequisiteTests(unittest.TestCase):
         self.assertEqual(installer.install(self.target, False, True), 0)
         self.assertEqual([call.args[0] for call in self.run.call_args_list],
                          [["brew", "install", "uv"], ["/tools/uv", "--version"]])
-        self.assertTrue((self.target / "pipelines/ingestion/bronze").is_dir())
+        self.assertFalse((self.target / "pipelines").exists())
 
     def test_uv_install_failure_aborts_before_writes(self) -> None:
         self.run.side_effect = subprocess.CalledProcessError(1, ["brew", "install", "uv"])
@@ -517,7 +534,7 @@ class UvPrerequisiteTests(unittest.TestCase):
         )
 
     def test_conflicts_prevent_uv_installation(self) -> None:
-        (self.target / "pipelines").write_text("Conflict\n")
+        (self.target / ".github").write_text("Conflict\n")
         with self.assertRaisesRegex(ValueError, "not a directory"):
             installer.install(self.target, False, True)
         self.run.assert_not_called()
