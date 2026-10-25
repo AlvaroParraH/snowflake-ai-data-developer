@@ -76,20 +76,38 @@ class InstallerTests(unittest.TestCase):
     def test_fresh_install_links_and_idempotency(self) -> None:
         result = self.run_installer("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 9)
+        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 10)
         self.assertTrue(
             (self.target / ".github/skills/snowflake-compute-tagging/SKILL.md").is_file()
         )
+        self.assertTrue((self.target / ".github/skills/snowflake-tasks/SKILL.md").is_file())
         self.assertFalse((self.target / "skills").exists())
+        self.assertEqual(
+            len(list((self.target / ".github/agents").glob("*.agent.md"))), 4
+        )
+        self.assertTrue(
+            (self.target / ".github/agents/snowflake-cost-investigator.agent.md").is_file()
+        )
+        for name in ("snowflake-query-optimizer", "snowflake-naming-auditor",
+                     "snowflake-data-profiler"):
+            self.assertTrue(
+                (self.target / f".github/agents/{name}.agent.md").is_file()
+            )
         for skill in (self.target / ".github/skills").glob("*/SKILL.md"):
             content = skill.read_text()
             self.assertIn(f"\nname: {skill.parent.name}\n", content)
             self.assertRegex(content, r'\A---\nname: [^\n]+\ndescription: "[^\n]+"\n---\n')
             self.assertGreater(len(content.splitlines()), 50, skill)
             self.assertNotIn("../../../skills/", content)
-        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 6)
+        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 8)
         self.assertTrue((self.target / ".github/prompts/snowflake-audit.prompt.md").is_file())
         self.assertTrue((self.target / ".github/prompts/snowflake-check.prompt.md").is_file())
+        self.assertTrue(
+            (self.target / ".github/prompts/snowflake-kit-status.prompt.md").is_file()
+        )
+        self.assertTrue(
+            (self.target / ".github/prompts/snowflake-kit-update.prompt.md").is_file()
+        )
         self.assertTrue((self.target / ".github/prompts/snowflake-pipeline.prompt.md").is_file())
         self.assertTrue((self.target / "scripts/init_project.py").is_file())
         self.assertFalse((self.target / ".github/github-app.yml").exists())
@@ -407,6 +425,17 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("Conflicts found", result.stderr)
         self.assertEqual(before, self.snapshot())
         self.assertFalse((self.target / "pipelines").exists())
+
+    def test_agent_conflict_aborts_before_any_write(self) -> None:
+        conflict = self.target / ".github/agents/snowflake-cost-investigator.agent.md"
+        conflict.parent.mkdir(parents=True)
+        conflict.write_text("My custom agent\n")
+        before = self.snapshot()
+        result = self.run_installer("--yes", "--skip-venv")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Conflicts found", result.stderr)
+        self.assertEqual(before, self.snapshot())
+        self.assertFalse((self.target / ".github/skills").exists())
 
     def test_modified_managed_instructions_are_not_replaced(self) -> None:
         self.assertEqual(self.run_installer("--yes").returncode, 0)

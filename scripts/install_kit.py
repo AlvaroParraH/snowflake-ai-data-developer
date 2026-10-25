@@ -77,7 +77,7 @@ def verify_git(executable: str) -> None:
 
 def payloads() -> dict[Path, bytes]:
     files: dict[Path, bytes] = {}
-    for directory in (".github/skills", ".github/prompts", "docs"):
+    for directory in (".github/agents", ".github/skills", ".github/prompts", "docs"):
         source = ROOT / directory
         if not source.is_dir():
             raise ValueError(f"Missing kit directory: {source}")
@@ -93,6 +93,12 @@ def payloads() -> dict[Path, bytes]:
     }
     if not skills:
         raise ValueError("No skills found under .github/skills/.")
+    agents = {
+        p for p in files
+        if p.parts[:2] == (".github", "agents") and p.name.endswith(".agent.md")
+    }
+    if not agents:
+        raise ValueError("No custom agents found under .github/agents/.")
     for relative in (Path(".githooks/pre-commit"), Path("scripts/scan_secrets.py"),
                      Path("scripts/init_project.py")):
         source = ROOT / relative
@@ -452,9 +458,10 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
     print(f"Installed {written} files. "
           "Prerequisites verified. No project dependencies installed or Snowflake connections made.")
     print("Open the target as the VS Code workspace root and reload to check Copilot discovery.")
-    print("Expected: nine snowflake-* skills, /snowflake-audit, /snowflake-check, "
-          "/snowflake-init, /snowflake-mcp-setup, /snowflake-pipeline and "
-          "/snowflake-sql-check. Run /snowflake-init "
+    print("Expected: four snowflake-* custom agents, ten snowflake-* skills, "
+          "/snowflake-audit, /snowflake-check, "
+          "/snowflake-init, /snowflake-kit-status, /snowflake-mcp-setup, /snowflake-pipeline and "
+          "/snowflake-kit-update, /snowflake-sql-check. Run /snowflake-init "
           "separately to create pipeline folders.")
     if not skip_venv:
         print(f"Select {environment_python(target)} as the project's VS Code interpreter.")

@@ -56,6 +56,8 @@ Read relevant guidance before designing or editing:
   refresh, quality, recovery, and operational tradeoffs.
 - [dbt with Snowflake](../skills/snowflake-dbt-integration/SKILL.md) for
   Snowflake adapter configuration, model conventions, tests, and build safety.
+- [Snowflake Tasks and task graphs](../skills/snowflake-tasks/SKILL.md) for
+  native task orchestration, compute models, retries, and monitoring.
 - [Snowflake project structure](../skills/snowflake-project-structure/SKILL.md)
   for the agreed repository layout and existing-project precedence.
 - [Snowflake data quality](../skills/snowflake-data-quality/SKILL.md) and

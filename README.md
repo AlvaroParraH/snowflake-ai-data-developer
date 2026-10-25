@@ -27,6 +27,9 @@ establish organization-wide naming policy.
   governed files, audit/lineage and sharing using Snowflake-native semantics.
 - [Snowflake compute tagging](.github/skills/snowflake-compute-tagging/SKILL.md) —
   warehouse object tags and query tags for Snowflake cost attribution.
+- [Snowflake tasks](.github/skills/snowflake-tasks/SKILL.md) —
+  scheduled and triggered Tasks, task graphs, retries, monitoring, and
+  orchestration tradeoffs.
 
 Existing project conventions take precedence. Confirm names and applicable
 conventions before creating or migrating objects.
@@ -67,8 +70,8 @@ Use `--no-install` to prohibit tool installation; missing uv then stops an
 actual run before project writes. A dry run only reports prerequisites and
 planned changes: it downloads, executes and installs nothing.
 
-The installer copies all nine full skills directly into `.github/skills/`,
-all six prompts, the local initialization script and their supporting documentation.
+The installer copies all ten full skills directly into `.github/skills/`,
+all eight prompts, the local initialization script and their supporting documentation.
 It appends a marked guidance block to existing Copilot instructions without
 changing the original text. Conflicting files stop installation before writes;
 identical files are left alone, making repeat installations safe.
@@ -211,7 +214,22 @@ project instructions live in
 [`.github/copilot-instructions.md`](.github/copilot-instructions.md), with
 native skill discovery under `.github/skills/`. Each skill's `SKILL.md` contains
 both discovery metadata and full guidance; there is no separate root-level
-skill copy. There are nine skills, listed above.
+skill copy. There are ten skills, listed above.
+
+Workspace custom agents provide focused investigations:
+
+- [`snowflake-cost-investigator`](.github/agents/snowflake-cost-investigator.agent.md)
+  ranks bounded query and warehouse compute usage; it distinguishes query
+  attribution from warehouse metering and requires approval before live access.
+- [`snowflake-query-optimizer`](.github/agents/snowflake-query-optimizer.agent.md)
+  diagnoses one completed query from available history/profile evidence without
+  rerunning it.
+- [`snowflake-naming-auditor`](.github/agents/snowflake-naming-auditor.agent.md)
+  statically checks project naming against documented rules without querying
+  Snowflake or renaming objects.
+- [`snowflake-data-profiler`](.github/agents/snowflake-data-profiler.agent.md)
+  produces bounded, aggregate-only profiles for an explicitly scoped dataset.
+  It complements the Bronze profiling skill.
 
 Workspace prompts include
 [`/snowflake-audit`](.github/prompts/snowflake-audit.prompt.md) for a local
@@ -220,6 +238,10 @@ repository audit and optional approved, bounded account metadata review,
 prerequisite checks and an approved Snowflake CLI connection test,
 [`/snowflake-init`](.github/prompts/snowflake-init.prompt.md) for explicitly
 creating the agreed empty pipeline folders,
+[`/snowflake-kit-status`](.github/prompts/snowflake-kit-status.prompt.md) for a
+read-only local kit health check,
+[`/snowflake-kit-update`](.github/prompts/snowflake-kit-update.prompt.md) for a
+reviewed, non-destructive refresh of project-local Snowflake kit assets,
 [`/snowflake-mcp-setup`](.github/prompts/snowflake-mcp-setup.prompt.md) for
 approved MCP client configuration,
 [`/snowflake-pipeline`](.github/prompts/snowflake-pipeline.prompt.md) for
