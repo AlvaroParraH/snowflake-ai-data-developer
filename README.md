@@ -254,3 +254,9 @@ See [Copilot setup](docs/copilot-setup.md) for project-local adoption, discovery
 checks, and optional Snowflake MCP configuration guidance. No global installer,
 MCP connection, credentials, or automatic database access is included. Copilot
 instructions and MCP configuration are not Codex configuration.
+
+For contributors maintaining this repository, see
+[AGENTS.md](AGENTS.md) for coding-agent guidance and
+[ARCHITECTURE.md](ARCHITECTURE.md) for the component map, installation
+boundaries, safety model, and design decisions. These contributor documents
+are not copied into consuming projects.
