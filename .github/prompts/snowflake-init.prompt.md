@@ -49,7 +49,10 @@ initialization, separate from kit installation.
    Resolve the script from the target project's root; use its absolute path if
    running from another directory. Do not execute an unreviewed replacement script.
 4. Show the exact target and planned folders. Ask for confirmation before running
-   the same command with `--yes` instead of `--dry-run`.
+   the same command with `--yes` instead of `--dry-run`. The plan also initializes
+   a local Git repository if the target is not already inside one. For a nested
+   target, do not create a repository inside the parent repository. Use `--no-git`
+   if the user opts out. `git init` creates no commit or remote and stages no files.
    Preserve `--allow-existing` only when explicitly approved. If detection
    changes between preview and execution, stop and review the new signals.
 5. Verify all five leaf directories exist: `pipelines/ingestion/bronze/`,
@@ -58,7 +61,7 @@ initialization, separate from kit installation.
    Report failures explicitly. A dry run is not completed initialization.
 
 Create folders only: no starter models, DAGs, `.gitkeep`, manifests, lockfiles,
-credentials, Git initialization, environment setup, dependency installation,
+credentials, file staging, commits, remotes, environment setup, dependency installation,
 MCP activation, Snowflake SQL, or deployment. Empty folders are not tracked by
 Git. Existing content is preserved; conflicts and symlinks must be resolved
 manually, never bypassed or overwritten.

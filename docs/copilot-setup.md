@@ -251,9 +251,11 @@ python3 scripts/init_project.py --target /path/to/existing-project --dry-run
 python3 scripts/init_project.py --target /path/to/existing-project
 ```
 
-The script requires only Python 3.10+, not uv, Git, a virtual environment or
-network access. It previews the complete plan and requires confirmation before
-creating folders; use `--yes` for explicit non-interactive approval.
+The script requires Python 3.10+ and Git by default; it does not require uv, a
+virtual environment or network access. Use `--no-git` to skip Git and avoid the
+Git requirement. It previews the complete plan and requires confirmation before
+creating folders or initializing Git; use `--yes` for explicit non-interactive
+approval.
 Before planning creation, the script detects local project state and reports
 per-signal evidence:
 
@@ -274,6 +276,13 @@ For approved additive creation, use `--allow-existing` with the preview and
 actual command. `--yes` alone cannot approve a brownfield layout change.
 No force-greenfield/overwrite escape hatch is provided. Existing files are
 never moved, replaced or deleted.
+
+If the target is already a Git repository, it is left as-is. If it is inside
+a parent repository, no nested repository is created. Otherwise `git init`
+initializes the target root by default; `--no-git` opts out. This creates no
+commit, remote, staged files or push. The command does not activate the copied
+secret-scanning hook; rerun the kit installer after Git initialization to
+enable it safely in the new repository.
 
 Initialization creates this agreed pipeline layout:
 
@@ -297,16 +306,16 @@ adding this parallel layout rather than assuming a migration.
 Neither installation nor initialization moves existing pipelines or generates models, DAGs,
 `dbt_project.yml`, Python manifests, or pipeline runtime configuration. These empty
 code folders are not a runnable project and are not tracked by Git until files
-are added. Initialization `--dry-run` creates neither folders nor files.
-No starter files, `.gitkeep`, Git initialization, account auditing, Snowflake
-connections or deployment are performed. Filesystem failures report partial
+are added. Initialization `--dry-run` creates neither folders nor repository.
+No starter files, `.gitkeep`, account auditing, Snowflake connections or
+deployment are performed. Filesystem failures report partial
 directory operations; inspect the target before retrying.
 
 Installed assets:
 
 - All eight full skills under `.github/skills/`, including discovery metadata.
 - `.githooks/pre-commit` and `scripts/scan_secrets.py` for staged secret scanning.
-- All three `.github/prompts/` workflows, `scripts/init_project.py`, and supporting Markdown/SVG files under
+- All five `.github/prompts/` workflows, `scripts/init_project.py`, and supporting Markdown/SVG files under
   `docs/`, preserving relative links.
 - A marked Snowflake guidance block appended to
   `.github/copilot-instructions.md`. Existing project text is preserved.

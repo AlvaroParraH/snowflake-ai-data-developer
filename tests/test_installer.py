@@ -84,7 +84,9 @@ class InstallerTests(unittest.TestCase):
             self.assertRegex(content, r'\A---\nname: [^\n]+\ndescription: "[^\n]+"\n---\n')
             self.assertGreater(len(content.splitlines()), 50, skill)
             self.assertNotIn("../../../skills/", content)
-        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 3)
+        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 5)
+        self.assertTrue((self.target / ".github/prompts/snowflake-audit.prompt.md").is_file())
+        self.assertTrue((self.target / ".github/prompts/snowflake-check.prompt.md").is_file())
         self.assertTrue((self.target / "scripts/init_project.py").is_file())
         self.assertFalse((self.target / ".github/github-app.yml").exists())
         self.assertFalse((self.target / "pyproject.toml").exists())
@@ -341,13 +343,23 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(initialized.returncode, 0, initialized.stderr)
         for directory in PIPELINE_LEAVES:
             self.assertTrue((self.target / directory).is_dir(), directory)
-        self.assertEqual(before, self.snapshot())
+        self.assertTrue((self.target / ".git").is_dir())
+        after_initialization = self.snapshot()
+        self.assertEqual(before, {
+            path: content for path, content in after_initialization.items()
+            if not path.startswith(".git/")
+        })
         missing = self.target / PIPELINE_LEAVES[0]
         missing.rmdir()
+        (self.bin / "git").rename(self.bin / "git-disabled")
         result = self.run_installer("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(missing.exists())
-        self.assertEqual(before, self.snapshot())
+        after_reinstall = self.snapshot()
+        self.assertEqual(before, {
+            path: content for path, content in after_reinstall.items()
+            if not path.startswith(".git/")
+        })
 
     def test_installer_leaves_pipeline_file_untouched(self) -> None:
         conflict = self.target / "pipelines"

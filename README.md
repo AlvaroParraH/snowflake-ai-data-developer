@@ -66,7 +66,7 @@ actual run before project writes. A dry run only reports prerequisites and
 planned changes: it downloads, executes and installs nothing.
 
 The installer copies all eight full skills directly into `.github/skills/`,
-all three prompts, the local initialization script and their supporting documentation.
+all five prompts, the local initialization script and their supporting documentation.
 It appends a marked guidance block to existing Copilot instructions without
 changing the original text. Conflicting files stop installation before writes;
 identical files are left alone, making repeat installations safe.
@@ -91,7 +91,12 @@ Use `--detect-only` for a read-only classification. Existing projects require
 explicit `--allow-existing` approval before missing folders can be added;
 `--yes` alone does not bypass that check. In Copilot, `/snowflake-init` offers
 local layout review, additive folder creation, or cancellation for brownfield
-projects. No account audit or overwrite mode is included.
+projects. Unless `--no-git` is passed, it also runs `git init` when the target
+is not already in a repository. Existing repositories and parent repositories
+are not reinitialized and do not get a nested repository. Git initialization
+does not add files, create commits, configure remotes, or publish anything.
+After initializing a Git repository, rerun `install.sh` if you want to activate
+the staged secret-scanning hook. No account audit or overwrite mode is included.
 
 This separate initialization creates the following folders, preserving existing contents:
 
@@ -207,6 +212,10 @@ both discovery metadata and full guidance; there is no separate root-level
 skill copy. There are eight skills, listed above.
 
 Workspace prompts include
+[`/snowflake-audit`](.github/prompts/snowflake-audit.prompt.md) for a local
+repository audit and optional approved, bounded account metadata review,
+[`/snowflake-check`](.github/prompts/snowflake-check.prompt.md) for local
+prerequisite checks and an approved Snowflake CLI connection test,
 [`/snowflake-init`](.github/prompts/snowflake-init.prompt.md) for explicitly
 creating the agreed empty pipeline folders,
 [`/snowflake-mcp-setup`](.github/prompts/snowflake-mcp-setup.prompt.md) for

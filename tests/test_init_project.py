@@ -24,7 +24,9 @@ class InitializationTests(unittest.TestCase):
         self.target = Path(temporary.name) / "project with spaces"
         self.target.mkdir()
 
-    def run_init(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+    def run_init(self, *arguments: str, no_git: bool = True) -> subprocess.CompletedProcess[str]:
+        if no_git and "--no-git" not in arguments:
+            arguments = (*arguments, "--no-git")
         return subprocess.run(
             [sys.executable, "-B", str(SCRIPT), "--target", str(self.target), *arguments],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False,
@@ -39,6 +41,72 @@ class InitializationTests(unittest.TestCase):
         result = self.run_init("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Already initialized", result.stdout)
+
+    def test_greenfield_initializes_git_after_approval(self) -> None:
+        preview = self.run_init("--dry-run", no_git=False)
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertIn("GIT INIT", preview.stdout)
+        self.assertFalse((self.target / ".git").exists())
+        result = self.run_init("--yes", no_git=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        root = subprocess.run(
+            ["git", "-C", str(self.target), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(Path(root.stdout.strip()).resolve(), self.target.resolve())
+        commits = subprocess.run(
+            ["git", "-C", str(self.target), "rev-list", "--count", "HEAD"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(commits.returncode, 0)
+        self.assertTrue((self.target / "pipelines/ingestion/bronze").is_dir())
+        self.assertTrue(self.run_init("--yes", no_git=False).returncode == 0)
+
+    def test_existing_git_repository_is_never_reinitialized(self) -> None:
+        subprocess.run(["git", "-C", str(self.target), "init", "-q"], check=True)
+        result = self.run_init("--yes", no_git=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("already a Git repository", result.stdout)
+        self.assertNotIn("GIT INIT", result.stdout)
+        self.assertTrue((self.target / ".git").is_dir())
+
+    def test_nested_parent_repository_is_not_created(self) -> None:
+        subprocess.run(["git", "-C", str(self.target), "init", "-q"], check=True)
+        nested = self.target / "nested-project"
+        nested.mkdir()
+        result = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "--target", str(nested), "--yes"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("inside parent repository", result.stdout)
+        self.assertFalse((nested / ".git").exists())
+
+    def test_no_git_opt_out(self) -> None:
+        result = self.run_init("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--no-git", result.stdout)
+        self.assertFalse((self.target / ".git").exists())
+
+    def test_existing_untracked_project_requires_approval_for_git_init(self) -> None:
+        (self.target / "snowflake.yml").write_text("existing project\n")
+        result = self.run_init("--yes", no_git=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--allow-existing", result.stderr)
+        self.assertFalse((self.target / ".git").exists())
+        result = self.run_init("--yes", "--allow-existing", no_git=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.target / ".git").exists())
+
+    def test_declining_confirmation_does_not_initialize_git(self) -> None:
+        with patch.object(initializer.shutil, "which", return_value="/usr/bin/git"), patch.object(
+            initializer, "git_repository", return_value=None,
+        ), patch.object(initializer.sys.stdin, "isatty", return_value=True), patch(
+            "builtins.input", return_value="n",
+        ), patch.object(initializer.subprocess, "run") as run, redirect_stdout(io.StringIO()):
+            self.assertEqual(initializer.initialize(self.target, False, False), 0)
+        run.assert_not_called()
+        self.assertFalse((self.target / ".git").exists())
 
     def test_dry_run_and_confirmation_required(self) -> None:
         result = self.run_init("--dry-run")
@@ -112,7 +180,7 @@ class InitializationTests(unittest.TestCase):
         with patch.object(Path, "mkdir", failing_mkdir), redirect_stdout(io.StringIO()), \
                 redirect_stderr(errors), self.assertRaises(PermissionError):
             initializer.initialize(self.target, False, True)
-        self.assertIn("after 1 directory operations", errors.getvalue())
+        self.assertIn("1 directory operations", errors.getvalue())
 
     def test_installed_assets_do_not_count_as_existing_project(self) -> None:
         for relative in (".github/skills/example", ".venv", "scripts", "docs"):
