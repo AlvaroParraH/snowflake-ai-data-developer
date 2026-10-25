@@ -76,7 +76,10 @@ class InstallerTests(unittest.TestCase):
     def test_fresh_install_links_and_idempotency(self) -> None:
         result = self.run_installer("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 8)
+        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 9)
+        self.assertTrue(
+            (self.target / ".github/skills/snowflake-compute-tagging/SKILL.md").is_file()
+        )
         self.assertFalse((self.target / "skills").exists())
         for skill in (self.target / ".github/skills").glob("*/SKILL.md"):
             content = skill.read_text()
@@ -84,9 +87,10 @@ class InstallerTests(unittest.TestCase):
             self.assertRegex(content, r'\A---\nname: [^\n]+\ndescription: "[^\n]+"\n---\n')
             self.assertGreater(len(content.splitlines()), 50, skill)
             self.assertNotIn("../../../skills/", content)
-        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 5)
+        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 6)
         self.assertTrue((self.target / ".github/prompts/snowflake-audit.prompt.md").is_file())
         self.assertTrue((self.target / ".github/prompts/snowflake-check.prompt.md").is_file())
+        self.assertTrue((self.target / ".github/prompts/snowflake-pipeline.prompt.md").is_file())
         self.assertTrue((self.target / "scripts/init_project.py").is_file())
         self.assertFalse((self.target / ".github/github-app.yml").exists())
         self.assertFalse((self.target / "pyproject.toml").exists())

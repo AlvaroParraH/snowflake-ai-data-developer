@@ -227,7 +227,7 @@ agreed.
   uniqueness or referential integrity; these constraints are generally not
   enforced on standard Snowflake tables. Hybrid tables have different
   constraint behavior.
-- Applying Spark/Databricks SQL syntax or assumptions, such as backtick
+- Applying another SQL dialect's syntax or assumptions, such as backtick
   quoting, to Snowflake SQL.
 - Fixing source values in the Bronze landing table before the project has
   agreed to mutate that ingestion contract.

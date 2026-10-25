@@ -25,6 +25,8 @@ establish organization-wide naming policy.
 - [Snowflake data governance](.github/skills/snowflake-data-governance/SKILL.md) —
   ownership, roles/grants, managed access, classification, masking, row access,
   governed files, audit/lineage and sharing using Snowflake-native semantics.
+- [Snowflake compute tagging](.github/skills/snowflake-compute-tagging/SKILL.md) —
+  warehouse object tags and query tags for Snowflake cost attribution.
 
 Existing project conventions take precedence. Confirm names and applicable
 conventions before creating or migrating objects.
@@ -65,8 +67,8 @@ Use `--no-install` to prohibit tool installation; missing uv then stops an
 actual run before project writes. A dry run only reports prerequisites and
 planned changes: it downloads, executes and installs nothing.
 
-The installer copies all eight full skills directly into `.github/skills/`,
-all five prompts, the local initialization script and their supporting documentation.
+The installer copies all nine full skills directly into `.github/skills/`,
+all six prompts, the local initialization script and their supporting documentation.
 It appends a marked guidance block to existing Copilot instructions without
 changing the original text. Conflicting files stop installation before writes;
 identical files are left alone, making repeat installations safe.
@@ -209,7 +211,7 @@ project instructions live in
 [`.github/copilot-instructions.md`](.github/copilot-instructions.md), with
 native skill discovery under `.github/skills/`. Each skill's `SKILL.md` contains
 both discovery metadata and full guidance; there is no separate root-level
-skill copy. There are eight skills, listed above.
+skill copy. There are nine skills, listed above.
 
 Workspace prompts include
 [`/snowflake-audit`](.github/prompts/snowflake-audit.prompt.md) for a local
@@ -219,7 +221,9 @@ prerequisite checks and an approved Snowflake CLI connection test,
 [`/snowflake-init`](.github/prompts/snowflake-init.prompt.md) for explicitly
 creating the agreed empty pipeline folders,
 [`/snowflake-mcp-setup`](.github/prompts/snowflake-mcp-setup.prompt.md) for
-approved MCP client configuration and
+approved MCP client configuration,
+[`/snowflake-pipeline`](.github/prompts/snowflake-pipeline.prompt.md) for
+staged, review-gated pipeline design and implementation, and
 [`/snowflake-sql-check`](.github/prompts/snowflake-sql-check.prompt.md) for
 manual pre-commit SQLFluff checks using existing project tooling. The SQL
 check does not install dependencies, connect to Snowflake or enforce a Git hook.

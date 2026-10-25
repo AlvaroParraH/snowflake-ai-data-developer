@@ -452,8 +452,9 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
     print(f"Installed {written} files. "
           "Prerequisites verified. No project dependencies installed or Snowflake connections made.")
     print("Open the target as the VS Code workspace root and reload to check Copilot discovery.")
-    print("Expected: eight snowflake-* skills, /snowflake-audit, /snowflake-check, "
-          "/snowflake-init, /snowflake-mcp-setup and /snowflake-sql-check. Run /snowflake-init "
+    print("Expected: nine snowflake-* skills, /snowflake-audit, /snowflake-check, "
+          "/snowflake-init, /snowflake-mcp-setup, /snowflake-pipeline and "
+          "/snowflake-sql-check. Run /snowflake-init "
           "separately to create pipeline folders.")
     if not skip_venv:
         print(f"Select {environment_python(target)} as the project's VS Code interpreter.")
