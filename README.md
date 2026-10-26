@@ -62,9 +62,11 @@ its skills.
 
 ## Install into a project
 
-Use Git, Python 3.10+ and Bash to run the [project-local installer](install.sh).
-It checks Git and uv on PATH and verifies their version commands before writing
-project files. No third-party Python packages or Snowflake credentials are needed.
+Use Git, Python 3.10+, Bash, and the Snowflake CLI (`snow`) to run the
+[project-local installer](install.sh). It checks Git, Snowflake CLI, and uv on
+PATH and verifies their version commands before writing project files. With
+your approval, it can install missing uv and Snowflake CLI. No Snowflake account
+credentials are needed just to install the kit.
 
 ```bash
 bash install.sh --target /path/to/existing-project --dry-run
@@ -72,16 +74,25 @@ bash install.sh --target /path/to/existing-project
 ```
 
 Review the preview, then confirm installation. For non-interactive use, pass
-`--yes` after reviewing a dry run; this also approves installing missing uv.
+`--yes` after reviewing a dry run; this also approves installing missing uv
+and Snowflake CLI.
 If uv is missing, installation is offered using Homebrew on macOS or Astral's
 official installer on Linux. This needs network access and installs uv outside
 the project. Linux installation uses `~/.local/bin` without editing shell
 profiles; add that directory to PATH for future shells if needed.
-Git, Python and Homebrew (on macOS, only for installing uv) must already be installed.
+If Snowflake CLI is missing on macOS or Linux, the installer offers Snowflake's
+official signed-binary installer. It installs under
+`~/.local/share/snowflake-cli` (or `$XDG_DATA_HOME/snowflake-cli`) without
+editing shell profiles; add its `bin/` directory to PATH for future shells if
+needed. Windows and unsupported systems need a manual install using the
+[official instructions](https://docs.snowflake.com/en/developer-guide/snowflake-cli/installation/installation).
+Git, Python, Homebrew (on macOS, only for installing uv), and curl/sh (for
+installing Snowflake CLI) must already be installed.
 
-Use `--no-install` to prohibit tool installation; missing uv then stops an
-actual run before project writes. A dry run only reports prerequisites and
-planned changes: it downloads, executes and installs nothing.
+Use `--no-install` to prohibit automatic tool installation; missing uv or
+Snowflake CLI then stops an actual run before project writes. A dry run only
+reports prerequisites and planned changes: it downloads, executes and installs
+nothing.
 
 The installer copies all fifteen full skills directly into `.github/skills/`,
 all nine prompts, the local initialization script and their supporting documentation.

@@ -63,6 +63,46 @@ def install_uv() -> str:
     return executable
 
 
+def snowflake_cli_install_plan() -> str:
+    if not (sys.platform == "darwin" or sys.platform.startswith("linux")):
+        return ("automatic installation supports macOS and Linux only; install manually using "
+                "https://docs.snowflake.com/en/developer-guide/snowflake-cli/installation/installation")
+    if not shutil.which("curl") or not shutil.which("sh"):
+        return ("automatic installation requires curl and sh; install manually using "
+                "https://docs.snowflake.com/en/developer-guide/snowflake-cli/installation/installation")
+    data_directory = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    return ("download and run Snowflake's official installer; install under "
+            f"{data_directory / 'snowflake-cli'} without editing shell profiles")
+
+
+def install_snowflake_cli() -> str:
+    plan = snowflake_cli_install_plan()
+    if not plan.startswith("download and run"):
+        raise ValueError(f"Cannot automatically install Snowflake CLI: {plan}. "
+                         "No project files written.")
+    data_directory = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    with tempfile.TemporaryDirectory(prefix="snowflake-cli-install-") as temporary:
+        script = Path(temporary) / "install.sh"
+        subprocess.run(
+            ["curl", "--fail", "--location", "--silent", "--show-error",
+             "--proto", "=https", "--proto-redir", "=https",
+             "--connect-timeout", "15", "--max-time", "120",
+             "--output", str(script),
+             "https://sfc-repo.snowflakecomputing.com/snowflake-cli/install.sh"],
+            check=True, stdin=subprocess.DEVNULL,
+        )
+        environment = dict(os.environ, NON_INTERACTIVE="1", SKIP_PATH_PROMPT="1")
+        subprocess.run(["sh", str(script)], env=environment,
+                       check=True, stdin=subprocess.DEVNULL)
+    executable = data_directory / "snowflake-cli/bin/snow"
+    if not executable.is_file():
+        raise ValueError("Snowflake CLI installer finished but its executable was not found at "
+                         f"{executable}. Check the installation before rerunning; "
+                         "no project files written.")
+    print(f"Add {executable.parent} to PATH in future shells if it is not already present.")
+    return str(executable)
+
+
 def verify_uv(executable: str) -> None:
     result = subprocess.run([executable, "--version"], check=True, capture_output=True, text=True)
     version = result.stdout.strip()
@@ -73,6 +113,16 @@ def verify_uv(executable: str) -> None:
 
 def verify_git(executable: str) -> None:
     subprocess.run([executable, "--version"], check=True, stdin=subprocess.DEVNULL)
+
+
+def verify_snowflake_cli(executable: str) -> None:
+    result = subprocess.run(
+        [executable, "--version"], check=True, capture_output=True, text=True,
+    )
+    version = (result.stdout or "").strip() or (result.stderr or "").strip()
+    if not version:
+        raise ValueError(f"Snowflake CLI returned no version from {executable} --version.")
+    print(f"Prerequisite verified: {version} ({executable})")
 
 
 def payloads() -> dict[Path, bytes]:
@@ -342,6 +392,14 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
         raise ValueError("Git is required. Install Git manually and add it to PATH; "
                          "no tools or project files changed.")
     print(f"Prerequisite: Git found at {git}; will verify with git --version.")
+    snow = shutil.which("snow")
+    if snow:
+        print(f"Prerequisite: Snowflake CLI found at {snow}; will verify with snow --version.")
+    elif no_install:
+        print("Prerequisite: Snowflake CLI (snow) missing; automatic installation disabled (--no-install).")
+    else:
+        print(f"Prerequisite: Snowflake CLI (snow) missing; INSTALL "
+              f"{snowflake_cli_install_plan()}.")
     print("Pre-commit: skipped (--skip-hooks)." if skip_hooks else
           "Pre-commit: install staged secret scanner; inspect active hook after confirmation. "
           "Existing different hooks will not be replaced. No SQL linting.")
@@ -383,19 +441,30 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
         print(f"Prerequisite: uv missing; INSTALL {uv_install_plan()}.")
     if dry_run:
         print("Dry run complete. No files written, commands executed or tools installed. "
-              "uv is required for an actual installation.")
+              "Snowflake CLI and uv are required for an actual installation.")
         return 0
+    if not snow:
+        if no_install:
+            raise ValueError("Snowflake CLI (snow) is required but missing and automatic "
+                             "installation is disabled (--no-install). Install it manually "
+                             "using https://docs.snowflake.com/en/developer-guide/snowflake-cli/installation/installation. "
+                             "No project files written.")
+        if not assume_yes and not sys.stdin.isatty():
+            raise ValueError("Non-interactive installation requires --yes; preview with --dry-run.")
     if not uv and no_install:
         raise ValueError("uv is required but missing. Install uv and add it to PATH, "
                          "or rerun without --no-install. No project files written.")
-    if not assume_yes and (changes or not uv or create_environment or not skip_hooks):
+    if not assume_yes and (changes or not uv or not snow or create_environment or not skip_hooks):
         if not sys.stdin.isatty():
             raise ValueError("Non-interactive installation requires --yes; preview with --dry-run.")
-        if input("Approve this plan, including environment/MCP setup and uv installation if listed? [y/N] "
+        if input("Approve this plan, including environment/MCP setup and tool installations if listed? [y/N] "
                  ).strip().lower() not in {"y", "yes"}:
             print("Cancelled. No files written.")
             return 0
     verify_git(git)
+    if not snow:
+        snow = install_snowflake_cli()
+    verify_snowflake_cli(snow)
     hook = None if skip_hooks else hook_destination(target, git)
     if not uv:
         uv = install_uv()
@@ -480,9 +549,9 @@ def main() -> int:
     parser.add_argument("--target", type=Path, required=True, help="Existing target project root")
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing")
     parser.add_argument("--yes", action="store_true",
-                        help="Approve the displayed plan, including installation of missing uv")
+                        help="Approve the displayed plan, including installation of missing tools")
     parser.add_argument("--no-install", action="store_true",
-                        help="Never install uv; fail if the prerequisite is missing")
+                        help="Never install uv or Snowflake CLI; fail if either is missing")
     parser.add_argument("--skip-venv", action="store_true",
                         help="Preserve existing project environment conventions; do not set up .venv")
     parser.add_argument("--setup-mcp", action="store_true",

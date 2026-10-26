@@ -53,6 +53,11 @@ class InstallerTests(unittest.TestCase):
                        "if sys.argv[1:] == ['--version']: print('git version test')\n"
                        "else: raise SystemExit(128)\n")
         git.chmod(0o755)
+        snow = self.bin / "snow"
+        snow.write_text(f"#!{sys.executable}\nimport sys\n"
+                        "if sys.argv[1:] == ['--version']: print('Snowflake CLI 3.0-test')\n"
+                        "else: raise SystemExit(2)\n")
+        snow.chmod(0o755)
         self.environment = dict(os.environ, PATH=str(self.bin) + os.pathsep
                                 + os.environ.get("PATH", ""))
 
@@ -76,7 +81,7 @@ class InstallerTests(unittest.TestCase):
     def test_fresh_install_links_and_idempotency(self) -> None:
         result = self.run_installer("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 10)
+        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 15)
         self.assertTrue(
             (self.target / ".github/skills/snowflake-compute-tagging/SKILL.md").is_file()
         )
@@ -99,7 +104,7 @@ class InstallerTests(unittest.TestCase):
             self.assertRegex(content, r'\A---\nname: [^\n]+\ndescription: "[^\n]+"\n---\n')
             self.assertGreater(len(content.splitlines()), 50, skill)
             self.assertNotIn("../../../skills/", content)
-        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 8)
+        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 9)
         self.assertTrue((self.target / ".github/prompts/snowflake-audit.prompt.md").is_file())
         self.assertTrue((self.target / ".github/prompts/snowflake-check.prompt.md").is_file())
         self.assertTrue(
@@ -183,6 +188,64 @@ class InstallerTests(unittest.TestCase):
         result = self.run_installer("--yes")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("exit status 8", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_missing_snowflake_cli_fails_without_writes(self) -> None:
+        (self.bin / "snow").unlink()
+        self.environment["PATH"] = str(self.bin)
+        result = self.run_installer("--yes", "--no-install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Snowflake CLI (snow) is required but missing", result.stderr)
+        self.assertIn("--no-install", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_missing_snowflake_cli_dry_run_only_reports(self) -> None:
+        (self.bin / "snow").unlink()
+        self.environment["PATH"] = str(self.bin)
+        result = self.run_installer("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Snowflake CLI (snow) missing", result.stdout)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_missing_snowflake_cli_requires_confirmation_noninteractively(self) -> None:
+        (self.bin / "snow").unlink()
+        self.environment["PATH"] = str(self.bin)
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Non-interactive installation requires --yes", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_approved_plan_installs_missing_snowflake_cli_before_project_writes(self) -> None:
+        (self.bin / "snow").unlink()
+        data_directory = Path(self.temporary.name) / "data"
+        self.environment["XDG_DATA_HOME"] = str(data_directory)
+        installer_script = (
+            "#!/bin/sh\n"
+            'mkdir -p "$XDG_DATA_HOME/snowflake-cli/bin"\n'
+            "printf '%s\\n' '#!/bin/sh' "
+            "'printf \"%s\\\\n\" \"Snowflake CLI test\"' "
+            '> "$XDG_DATA_HOME/snowflake-cli/bin/snow"\n'
+            'chmod +x "$XDG_DATA_HOME/snowflake-cli/bin/snow"\n'
+        )
+        curl = self.bin / "curl"
+        curl.write_text(
+            f"#!{sys.executable}\n"
+            "import pathlib, sys\n"
+            "output = pathlib.Path(sys.argv[sys.argv.index('--output') + 1])\n"
+            f"output.write_text({installer_script!r})\n"
+        )
+        curl.chmod(0o755)
+        result = self.run_installer("--yes", "--skip-hooks", "--skip-venv")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Prerequisite verified: Snowflake CLI test", result.stdout)
+        self.assertTrue((data_directory / "snowflake-cli/bin/snow").is_file())
+        self.assertTrue((self.target / ".github/copilot-instructions.md").is_file())
+
+    def test_broken_snowflake_cli_fails_before_project_writes(self) -> None:
+        (self.bin / "snow").write_text(f"#!{sys.executable}\nraise SystemExit(9)\n")
+        result = self.run_installer("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exit status 9", result.stderr)
         self.assertEqual(list(self.target.iterdir()), [])
 
     def test_skip_environment_preserves_manifests(self) -> None:
@@ -550,7 +613,8 @@ class UvPrerequisiteTests(unittest.TestCase):
         self.run.side_effect = execute
         self.assertEqual(installer.install(self.target, False, True), 0)
         self.assertEqual([call.args[0] for call in self.run.call_args_list],
-                         [["brew", "install", "uv"], ["/tools/uv", "--version"]])
+                         [["/tools/snow", "--version"],
+                          ["brew", "install", "uv"], ["/tools/uv", "--version"]])
         self.assertFalse((self.target / "pipelines").exists())
 
     def test_uv_install_failure_aborts_before_writes(self) -> None:
@@ -574,8 +638,9 @@ class UvPrerequisiteTests(unittest.TestCase):
     def test_existing_uv_is_verified_without_installing(self) -> None:
         self.which.side_effect = lambda name: f"/tools/{name}"
         self.assertEqual(installer.install(self.target, False, True, no_install=True), 0)
-        self.run.assert_called_once_with(
-            ["/tools/uv", "--version"], check=True, capture_output=True, text=True,
+        self.assertEqual(
+            [call.args[0] for call in self.run.call_args_list],
+            [["/tools/snow", "--version"], ["/tools/uv", "--version"]],
         )
 
     def test_conflicts_prevent_uv_installation(self) -> None:
@@ -585,10 +650,43 @@ class UvPrerequisiteTests(unittest.TestCase):
         self.run.assert_not_called()
 
     def test_mac_missing_homebrew_reports_manual_install(self) -> None:
-        self.which.side_effect = lambda name: "/tools/git" if name == "git" else None
+        self.which.side_effect = lambda name: (
+            f"/tools/{name}" if name in {"git", "snow"} else None
+        )
         with self.assertRaisesRegex(ValueError, "Install Homebrew or install uv manually"):
             installer.install(self.target, False, True)
         self.run.assert_not_called()
+
+    def test_snowflake_cli_install_uses_official_script_without_profile_changes(self) -> None:
+        data_directory = self.target / "data"
+
+        def execute(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if command[0] == "sh":
+                executable = data_directory / "snowflake-cli/bin/snow"
+                executable.parent.mkdir(parents=True)
+                executable.write_text("#!/bin/sh\nprintf '%s\\n' 'Snowflake CLI test'\n")
+                executable.chmod(0o755)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        self.run.side_effect = execute
+        with patch.dict(os.environ, {"XDG_DATA_HOME": str(data_directory)}):
+            with patch.object(installer.sys, "platform", "linux"):
+                executable = installer.install_snowflake_cli()
+        calls = self.run.call_args_list
+        self.assertEqual(calls[0].args[0][0], "curl")
+        self.assertEqual(calls[0].args[0][-1],
+                         "https://sfc-repo.snowflakecomputing.com/snowflake-cli/install.sh")
+        self.assertEqual(calls[1].args[0][0], "sh")
+        self.assertEqual(calls[1].kwargs["env"]["NON_INTERACTIVE"], "1")
+        self.assertEqual(calls[1].kwargs["env"]["SKIP_PATH_PROMPT"], "1")
+        self.assertTrue(Path(executable).is_file())
+        self.assertFalse(Path(calls[1].args[0][1]).parent.exists())
+
+    def test_snowflake_cli_install_failure_stops(self) -> None:
+        self.run.side_effect = subprocess.CalledProcessError(22, ["curl"])
+        with patch.object(installer.sys, "platform", "linux"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                installer.install_snowflake_cli()
 
     def test_linux_uses_official_installer_without_profile_changes(self) -> None:
         with patch.object(installer.sys, "platform", "linux"):
@@ -615,6 +713,7 @@ class UvPrerequisiteTests(unittest.TestCase):
 
     def test_linux_script_failure_cleans_up_and_stops(self) -> None:
         self.run.side_effect = [
+            subprocess.CompletedProcess(["snow"], 0, "Snowflake CLI 3.0\n", ""),
             subprocess.CompletedProcess(["curl"], 0),
             subprocess.CalledProcessError(1, ["sh"]),
         ]
@@ -644,7 +743,14 @@ class RealUvTests(unittest.TestCase):
     def test_offline_environment_creation_and_reuse(self) -> None:
         with tempfile.TemporaryDirectory(prefix="snowflake-real-uv-test-") as directory:
             target = Path(directory)
-            with redirect_stdout(io.StringIO()):
+            fake_bin = target / "bin"
+            fake_bin.mkdir()
+            snow = fake_bin / "snow"
+            snow.write_text("#!/bin/sh\nprintf '%s\\n' 'Snowflake CLI test'\n")
+            snow.chmod(0o755)
+            environment = dict(os.environ, PATH=str(fake_bin) + os.pathsep
+                               + os.environ.get("PATH", ""))
+            with patch.dict(os.environ, environment), redirect_stdout(io.StringIO()):
                 self.assertEqual(installer.install(target, False, True, no_install=True), 0)
                 python = installer.environment_python(target)
                 result = subprocess.run(

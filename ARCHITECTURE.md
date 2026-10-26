@@ -74,8 +74,9 @@ an agent for a focused investigation with a concise result.
 
 `install.sh` delegates to `scripts/install_kit.py`. The installer:
 
-1. Requires Git, Python 3.10+, and uv (which it may install only with user
-   approval, depending on invocation).
+1. Requires Git, Python 3.10+, Snowflake CLI (`snow`), and uv. With user
+   approval, it may install missing CLI/uv tools on supported platforms. Both
+   are version-checked before project writes.
 2. Gathers Markdown/SVG assets from `.github/agents/`, `.github/skills/`,
    `.github/prompts/`, and `docs/`, plus the project hook and scripts.
 3. Preflights destinations and refuses symlinks or files that differ from the

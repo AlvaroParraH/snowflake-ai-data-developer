@@ -1,11 +1,13 @@
 from contextlib import redirect_stdout
 import io
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from test_installer import ROOT, installer
 
@@ -16,6 +18,16 @@ class SecretScannerTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="snowflake-hook-test-")
         self.addCleanup(temporary.cleanup)
         self.target = Path(temporary.name).resolve()
+        fake_bin = self.target / "bin"
+        fake_bin.mkdir()
+        snow = fake_bin / "snow"
+        snow.write_text("#!/bin/sh\nprintf '%s\\n' 'Snowflake CLI test'\n")
+        snow.chmod(0o755)
+        path_patch = patch.dict(
+            os.environ, PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+        )
+        path_patch.start()
+        self.addCleanup(path_patch.stop)
         self.git("init", "-q")
         self.git("config", "user.name", "Installer Test")
         self.git("config", "user.email", "test@example.invalid")

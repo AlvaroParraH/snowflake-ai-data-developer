@@ -87,14 +87,25 @@ bash install.sh --target /path/to/existing-project
 ```
 
 The target must already exist and must be outside this kit. The installer
-needs Git, Bash, Python 3.10+, and uv. Its Python code uses only the standard library.
+needs Git, Bash, Python 3.10+, Snowflake CLI (`snow`), and uv. Its Python code
+uses only the standard library. With explicit approval, the installer can
+install missing Snowflake CLI and uv on macOS/Linux. No Snowflake account
+credentials are needed just to install the kit.
 The first command previews all writes and prerequisites; the second asks for
 confirmation. For automation, use `--yes` to approve the displayed plan,
-including installing missing uv. No target is selected implicitly.
+including installing missing tools. No target is selected implicitly.
 
 Git is checked on PATH and verified using `git --version`. Python is the
 interpreter running the installer, with a 3.10+ version check; the Bash entrypoint
 checks for Python before launching it. Git and Python are never auto-installed.
+Snowflake CLI is checked on PATH and verified using `snow --version`. If it is
+missing on macOS/Linux, approval runs Snowflake's official signed-binary
+installer non-interactively, with shell-profile edits disabled. It installs
+under `~/.local/share/snowflake-cli` or `$XDG_DATA_HOME/snowflake-cli`; add
+that installation's `bin/` directory to PATH for future shells if needed.
+This requires curl and sh. On Windows and unsupported systems, install it
+manually using the
+[official instructions](https://docs.snowflake.com/en/developer-guide/snowflake-cli/installation/installation).
 VS Code and GitHub Copilot must be installed and enabled separately; the installer
 does not require a `code` CLI or sign into your account.
 
@@ -111,11 +122,12 @@ does not require a `code` CLI or sign into your account.
   add `~/.local/bin` to PATH for future shells if needed.
 - Python, Homebrew, curl, and sh are not installed automatically. Unsupported
   platforms or missing installation tools produce manual-install guidance.
-- `--no-install` prohibits uv installation. If uv is missing, an actual run
-  fails before project writes. With uv already on PATH, installation needs no
-  network access.
-- `--dry-run` reports status without executing uv or any installation commands,
-  downloading anything, or writing files. A missing uv report is not verification.
+- `--no-install` prohibits uv and Snowflake CLI installation. If either is
+  missing, an actual run fails before project writes.
+- `--dry-run` reports status without executing uv, the Snowflake CLI installer,
+  or any installation commands, downloading anything, or writing files.
+  Missing CLI/uv reports are not verification; actual installation requires
+  both tools.
 
 Target conflicts are checked before uv installation. A failed uv installation
 or verification stops before project writes, but any external tool installation

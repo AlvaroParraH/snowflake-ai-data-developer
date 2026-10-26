@@ -57,11 +57,12 @@ Check availability and version of:
 - Python 3.10 or newer.
 - `uv`, required by the kit installer and used for its optional `.venv`
   creation.
-- Snowflake CLI (`snow`), optional for local kit installation but useful for
+- Snowflake CLI (`snow`), required by the kit installer and useful for
   Snowflake development.
 
-Use read-only version checks only. Do not install missing tools. If an
-optional tool is absent, mark it as a warning rather than a kit failure.
+Use read-only version checks only. Do not install missing tools. If a required
+tool is absent, report it as a failure; if an optional tool is absent, mark it
+as a warning.
 The kit does not require Node.js, Databricks CLI, or Claude CLI.
 
 ### 2. Kit installation and assets
