@@ -14,12 +14,11 @@ skills with their full guidance. It does not install or configure Codex.
 | `.github/prompts/<name>.prompt.md` | Workspace task prompt, available by name in Copilot Chat. |
 | `.github/github-app.yml` | Copilot app project instructions; no scripts or automation are configured. |
 
-The ten skills cover naming conventions, Bronze profiling,
-medallion architecture, data quality, data contracts, dbt integration, and
-project structure (Bronze ingestion, Silver/Gold dbt models and Airflow DAGs),
-data governance (roles/grants, classification, policies and audit), and
-compute cost attribution using Snowflake object and query tags, plus Snowflake
-Tasks and task-graph orchestration.
+The fifteen skills cover naming conventions, Bronze profiling, medallion
+architecture, data quality, data contracts, dbt integration, project
+structure, data governance, compute cost attribution, Snowflake Tasks,
+Streamlit in Snowflake, Cortex AI Functions, Cortex Search and RAG, Semantic
+Views and Cortex Analyst, and deployment/promotion.
 Maintain discovery metadata and full guidance together in each skill file;
 there is no separate root-level skill copy.
 
@@ -317,7 +316,7 @@ directory operations; inspect the target before retrying.
 Installed assets:
 
 - Four focused Snowflake custom agents under `.github/agents/`.
-- All ten full skills under `.github/skills/`, including discovery metadata.
+- All fifteen full skills under `.github/skills/`, including discovery metadata.
 - `.githooks/pre-commit` and `scripts/scan_secrets.py` for staged secret scanning.
 - All eight `.github/prompts/` workflows, `scripts/init_project.py`, and supporting Markdown/SVG files under
   `docs/`, preserving relative links.

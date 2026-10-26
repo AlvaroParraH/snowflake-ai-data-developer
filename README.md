@@ -30,6 +30,19 @@ establish organization-wide naming policy.
 - [Snowflake tasks](.github/skills/snowflake-tasks/SKILL.md) —
   scheduled and triggered Tasks, task graphs, retries, monitoring, and
   orchestration tradeoffs.
+- [Streamlit in Snowflake](.github/skills/snowflake-streamlit/SKILL.md) —
+  runtime selection, governed data access, app permissions, package and
+  external access, performance, and deployment guidance.
+- [Snowflake Cortex AI Functions](.github/skills/snowflake-cortex-ai-functions/SKILL.md) —
+  batch AI analysis, quality evaluation, cost, privileges, and data handling.
+- [Snowflake Cortex Search and RAG](.github/skills/snowflake-cortex-search/SKILL.md) —
+  corpus design, hybrid retrieval, freshness, filters, evaluation, and
+  grounded application patterns.
+- [Snowflake Semantic Views and Cortex Analyst](.github/skills/snowflake-semantic-views-analyst/SKILL.md) —
+  governed metrics and relationships for tested natural-language analytics.
+- [Snowflake deployment and promotion](.github/skills/snowflake-deployment/SKILL.md) —
+  tool-agnostic release planning, environment promotion, approvals, and
+  rollback safeguards.
 
 Existing project conventions take precedence. Confirm names and applicable
 conventions before creating or migrating objects.
@@ -70,8 +83,8 @@ Use `--no-install` to prohibit tool installation; missing uv then stops an
 actual run before project writes. A dry run only reports prerequisites and
 planned changes: it downloads, executes and installs nothing.
 
-The installer copies all ten full skills directly into `.github/skills/`,
-all eight prompts, the local initialization script and their supporting documentation.
+The installer copies all fifteen full skills directly into `.github/skills/`,
+all nine prompts, the local initialization script and their supporting documentation.
 It appends a marked guidance block to existing Copilot instructions without
 changing the original text. Conflicting files stop installation before writes;
 identical files are left alone, making repeat installations safe.
@@ -214,7 +227,7 @@ project instructions live in
 [`.github/copilot-instructions.md`](.github/copilot-instructions.md), with
 native skill discovery under `.github/skills/`. Each skill's `SKILL.md` contains
 both discovery metadata and full guidance; there is no separate root-level
-skill copy. There are ten skills, listed above.
+skill copy. There are fifteen skills, listed above.
 
 Workspace custom agents provide focused investigations:
 

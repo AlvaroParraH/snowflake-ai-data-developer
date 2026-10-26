@@ -32,6 +32,19 @@ before applying it; do not rely only on its description.
   classification tags, masking, row access policies, stage permissions,
   audit/lineage, or governed sharing:
   [data governance](skills/snowflake-data-governance/SKILL.md).
+- Streamlit apps hosted in Snowflake, including runtime choice, Snowflake data
+  access, app permissions, packages, secrets, external access, or deployment:
+  [Streamlit in Snowflake](skills/snowflake-streamlit/SKILL.md).
+- Batch text, document, image, or multimodal AI work using Snowflake-managed
+  functions:
+  [Cortex AI Functions](skills/snowflake-cortex-ai-functions/SKILL.md).
+- Hybrid search, retrieval, or RAG over Snowflake data:
+  [Cortex Search and RAG](skills/snowflake-cortex-search/SKILL.md).
+- Governed metrics or natural-language analytics over structured data:
+  [Semantic Views and Cortex Analyst](skills/snowflake-semantic-views-analyst/SKILL.md).
+- Deployment or promotion of Snowflake code and objects across environments:
+  [deployment and promotion](skills/snowflake-deployment/SKILL.md); use
+  `/snowflake-deploy` for a release review or plan.
 
 ## Safety and scope
 
