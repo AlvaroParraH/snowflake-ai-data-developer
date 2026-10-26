@@ -46,13 +46,14 @@ included in the installed project payload.
 |---|---|---|
 | Repository instructions | `.github/copilot-instructions.md` | Snowflake safety boundaries and routing to relevant skills. |
 | Skills | `.github/skills/<name>/SKILL.md` | On-demand Snowflake, dbt, medallion, governance, quality, naming, and operations knowledge. |
-| Prompts | `.github/prompts/*.prompt.md` | User-invoked workflows such as audit, readiness, initialization, kit maintenance, and pipeline planning. |
+| Prompts | `.github/prompts/*.prompt.md` | User-invoked workflows such as audit, readiness, initialization, dbt model generation, kit maintenance, and pipeline planning. |
 | Custom agents | `.github/agents/*.agent.md` | Focused investigation roles with explicit scope, minimal tools, and bounded outputs. |
 | Installer | `install.sh`, `scripts/install_kit.py` | Preview and install project-local assets without replacing differing files. |
-| Initializer | `scripts/init_project.py` | Separately preview and create the agreed empty `pipelines/` folders; optionally initialize Git with approval. |
+| Initializer | `scripts/init_project.py`, `scripts/scaffold_snowflake_project.py` | Separately preview and create the agreed `pipelines/` folders; optionally add a context-aware greenfield starter project and initialize Git with approval. |
+| dbt model generator | `scripts/scaffold_dbt_model.py`, `/snowflake-dbt-model` | Inspect conventions, then preview one model and matching YAML docs in an existing dbt project; no dbt execution or Snowflake connection. |
 | Secret scanner | `.githooks/pre-commit`, `scripts/scan_secrets.py` | Scan staged Git blobs for likely credential patterns without displaying matched values. |
 | Documentation | `README.md`, `docs/` | Setup, operating boundaries, and visual project-layout guidance. |
-| Tests | `tests/` | Installer, initializer, and secret-scanner behavior. |
+| Tests | `tests/` | Installer, project initializer, dbt model generator, and secret-scanner behavior. |
 
 ### Skills, prompts, and agents
 
@@ -96,10 +97,21 @@ folders.
 
 `/snowflake-init` and `scripts/init_project.py` are a separate opt-in workflow.
 They classify local project signals and preview creation of empty pipeline
-directories. Brownfield projects require explicit additive-layout approval.
-The workflow does not migrate files, generate models or DAGs, create a dbt
-project, configure credentials, or deploy workloads. Git initialization, when
-needed, is local only: it does not stage, commit, configure remotes, or push.
+directories. A greenfield-only `--scaffold` option also records project
+context and creates project documentation, `.gitignore`, an unimplemented
+source-aware ingestion placeholder, a minimal dbt project with a zero-row
+example model, model documentation and dbt test/macro/snapshot guidance, an
+empty-task Airflow DAG example, and local test guidance. Context fields do
+not configure Snowflake targets.
+Templates do not install dependencies, create credentials/profiles, connect
+to Snowflake, run dbt, or deploy workloads. Brownfield projects allow only
+explicitly approved additive folders. The workflow does not migrate files.
+Git initialization, when needed, is local only: it does not stage, commit,
+configure remotes, or push.
+
+`/snowflake-dbt-model` is a separate opt-in helper for an existing dbt project.
+It previews and creates a single model with matching documentation, refuses
+conflicts, and does not compile, execute, or connect to Snowflake.
 
 ### Secret-scanning hook
 

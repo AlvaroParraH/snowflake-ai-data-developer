@@ -22,9 +22,17 @@ Snowflake, or deploy Airflow merely because this skill was loaded.
 
 The kit installer does not create pipeline folders. When explicitly requested,
 use [the initialization prompt](../../prompts/snowflake-init.prompt.md) or the
-installed [local script](../../../scripts/init_project.py) to preview and create
-the core pipeline directories only. This does not generate the illustrative
-application files below or migrate an existing layout.
+installed [local initializer](../../../scripts/init_project.py) to preview and
+create the core pipeline directories. Its default is folders only. For a
+confirmed greenfield project, `--scaffold` additionally creates project
+context documentation, `.gitignore`, area guides, a source-aware but
+unimplemented Bronze Python placeholder, a minimal dbt project with a
+documented deterministic zero-row staging SQL example, an Airflow DAG with an
+empty task, and local test guidance. Optional context fields are documentation
+only; they do not configure Snowflake targets or credentials. These are
+templates, not a configured production pipeline. They never overwrite existing
+files or scaffold a brownfield project. Neither mode migrates an existing
+layout or installs dependencies.
 
 ```text
 snowflake-data-project/

@@ -71,11 +71,13 @@ Check the workspace root for the expected project-local files and report
 presence/counts without dumping content:
 
 - `.github/copilot-instructions.md`.
-- Ten `.github/skills/*/SKILL.md` files, each with valid `name` and
+- Fifteen `.github/skills/*/SKILL.md` files, each with valid `name` and
   `description` frontmatter matching its skill directory.
-- Seven `.github/prompts/*.prompt.md` files, each with meaningful prompt
+- Ten `.github/prompts/*.prompt.md` files, each with meaningful prompt
   metadata.
 - `scripts/install_kit.py`, `scripts/init_project.py`,
+  `scripts/scaffold_snowflake_project.py`,
+  `scripts/scaffold_dbt_model.py`,
   `scripts/scan_secrets.py`, `.githooks/pre-commit`, and setup documentation.
 - Optional `.venv` health: recognizable `pyvenv.cfg` and working interpreter.
   If absent, report that the environment is optional/skipped; do not create it.

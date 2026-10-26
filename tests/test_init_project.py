@@ -119,6 +119,137 @@ class InitializationTests(unittest.TestCase):
         self.assertIn("--yes", result.stderr)
         self.assertEqual(list(self.target.iterdir()), [])
 
+    def test_greenfield_scaffold_preview_lists_files_without_writes(self) -> None:
+        result = self.run_init("--dry-run", "--scaffold")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for relative in initializer.greenfield_scaffolder.starter_files():
+            self.assertIn(f"CREATE {relative}", result.stdout)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_scaffolder_entrypoint_uses_guarded_initializer(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-B", str(ROOT / "scripts/scaffold_snowflake_project.py"),
+             "--target", str(self.target), "--project-name", "warehouse_ops",
+             "--source-type", "database", "--environment", "dev",
+             "--dry-run", "--no-git"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CREATE README.md", result.stdout)
+        self.assertIn("CREATE .gitignore", result.stdout)
+        self.assertIn("CREATE tests/README.md", result.stdout)
+        self.assertEqual(list(self.target.iterdir()), [])
+        result = subprocess.run(
+            [sys.executable, "-B", str(ROOT / "scripts/scaffold_snowflake_project.py"),
+             "--target", str(self.target), "--project-name", "warehouse_ops",
+             "--source-type", "database", "--environment", "dev",
+             "--yes", "--no-git"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("warehouse_ops", (self.target / "pipelines/dbt/dbt_project.yml").read_text())
+        self.assertIn(
+            "external relational or operational database",
+            (self.target / "pipelines/ingestion/bronze/README.md").read_text(),
+        )
+        self.assertFalse((self.target / ".git").exists())
+
+    def test_greenfield_scaffold_writes_reviewable_starter_templates(self) -> None:
+        result = self.run_init(
+            "--yes", "--scaffold", "--project-name", "snowflake_data_project",
+            "--source-type", "api", "--environment", "dev",
+            "--description", "Customer sales analytics",
+            "--domain", "Sales", "--owner", "Data Engineering",
+            "--data-sensitivity", "personal_data",
+            "--consumers", "Finance and sales reporting",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = set(initializer.greenfield_scaffolder.starter_files())
+        actual = {
+            path.relative_to(self.target)
+            for path in self.target.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(actual, expected)
+        self.assertTrue((self.target / "README.md").is_file())
+        gitignore = (self.target / ".gitignore").read_text()
+        self.assertIn("pipelines/dbt/profiles.yml", gitignore)
+        self.assertIn(".env", gitignore)
+        self.assertNotIn("snowflake.yml", gitignore)
+        self.assertTrue((self.target / "README.md").read_text().startswith("# snowflake_data_project"))
+        self.assertTrue((self.target / ".gitignore").is_file())
+        self.assertTrue((self.target / "docs/project-profile.md").is_file())
+        profile = (self.target / "docs/project-profile.md").read_text()
+        self.assertIn("Customer sales analytics", profile)
+        self.assertIn("personal data", profile)
+        self.assertTrue((self.target / "pipelines/ingestion/bronze/README.md").is_file())
+        ingestion = (self.target / "pipelines/ingestion/bronze/ingest_template.py").read_text()
+        self.assertIn("Selected source type: API or SaaS source.", ingestion)
+        dbt_readme = (self.target / "pipelines/dbt/README.md").read_text()
+        self.assertIn("models/silver/staging/scaffold_example.sql", dbt_readme)
+        self.assertNotIn("models/scaffold_example.sql", dbt_readme)
+        self.assertTrue((self.target / "pipelines/orchestration/airflow/README.md").is_file())
+        self.assertTrue((self.target / "pipelines/ingestion/bronze/ingest_template.py").is_file())
+        self.assertTrue((self.target / "pipelines/dbt/dbt_project.yml").is_file())
+        model = self.target / "pipelines/dbt/models/silver/staging/scaffold_example.sql"
+        self.assertTrue(model.is_file())
+        self.assertIn("where 1 = 0", model.read_text())
+        dbt_config = (self.target / "pipelines/dbt/dbt_project.yml").read_text()
+        self.assertIn('profile: snowflake_data_project', dbt_config)
+        self.assertIn('model-paths: ["models"]', dbt_config)
+        self.assertTrue(
+            (self.target / "pipelines/dbt/models/silver/staging/_models.yml").is_file()
+        )
+        self.assertTrue((self.target / "pipelines/dbt/tests/README.md").is_file())
+        self.assertTrue((self.target / "pipelines/dbt/macros/README.md").is_file())
+        self.assertTrue((self.target / "pipelines/dbt/snapshots/README.md").is_file())
+        self.assertTrue(
+            (self.target / "pipelines/orchestration/airflow/dags/scaffold_pipeline.py").is_file()
+        )
+        self.assertTrue((self.target / "tests/README.md").is_file())
+        for relative in (
+            "pipelines/ingestion/bronze/ingest_template.py",
+            "pipelines/orchestration/airflow/dags/scaffold_pipeline.py",
+        ):
+            compile((self.target / relative).read_text(), relative, "exec")
+        self.assertFalse((self.target / "pyproject.toml").exists())
+        self.assertFalse((self.target / "pipelines/dbt/profiles.yml").exists())
+        self.assertFalse((self.target / "snowflake.yml").exists())
+        self.assertFalse((self.target / "uv.lock").exists())
+        self.assertIn("15 starter files", result.stdout)
+
+    def test_scaffold_context_validates_names_and_choices(self) -> None:
+        result = self.run_init("--dry-run", "--scaffold", "--project-name", "Invalid-Name")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("lowercase dbt identifier", result.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+        result = self.run_init(
+            "--dry-run", "--scaffold", "--source-type", "unsupported",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid choice", result.stderr)
+
+    def test_greenfield_scaffold_refuses_file_conflicts_before_creation(self) -> None:
+        readme = self.target / "README.md"
+        readme.write_text("Preserve this project README\n")
+        result = self.run_init("--yes", "--scaffold", no_git=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("README.md", result.stderr)
+        self.assertEqual(readme.read_text(), "Preserve this project README\n")
+        self.assertFalse((self.target / ".git").exists())
+        self.assertFalse((self.target / "pipelines").exists())
+
+    def test_greenfield_scaffold_is_rejected_for_brownfield(self) -> None:
+        existing = self.target / "snowflake.yml"
+        existing.write_text("Preserve existing configuration\n")
+        result = self.run_init("--yes", "--scaffold", "--allow-existing")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("only available when no existing Snowflake project", result.stderr)
+        self.assertEqual(existing.read_text(), "Preserve existing configuration\n")
+        self.assertFalse((self.target / "README.md").exists())
+        self.assertFalse((self.target / "pipelines").exists())
+
     def test_preserves_existing_content_and_restores_missing_folder(self) -> None:
         model = self.target / "pipelines/dbt/models/gold/marts/custom.sql"
         model.parent.mkdir(parents=True)

@@ -95,12 +95,13 @@ reports prerequisites and planned changes: it downloads, executes and installs
 nothing.
 
 The installer copies all fifteen full skills directly into `.github/skills/`,
-all nine prompts, the local initialization script and their supporting documentation.
+all ten prompts, the project initializer and starter generators, and their
+supporting documentation.
 It appends a marked guidance block to existing Copilot instructions without
 changing the original text. Conflicting files stop installation before writes;
 identical files are left alone, making repeat installations safe.
 
-### Initialize pipeline folders separately
+### Initialize pipeline folders or a project starter scaffold
 
 Installation does not create or restore pipeline folders. After installation,
 run `/snowflake-init` in Copilot Chat, or run the installed script from the
@@ -111,23 +112,63 @@ python3 scripts/init_project.py --target /path/to/your-project --dry-run
 python3 scripts/init_project.py --target /path/to/your-project
 ```
 
-Review the preview and confirm creation (or pass `--yes` for automation).
+By default, initialization creates only the agreed folders. To preview the
+optional greenfield starter scaffold, add `--scaffold`:
+
+```bash
+python3 scripts/init_project.py --target /path/to/your-project --dry-run --scaffold
+python3 scripts/init_project.py --target /path/to/your-project --scaffold
+```
+
+The scaffold adds project-context documentation, a `.gitignore`, area guides,
+an unimplemented source-aware Bronze Python placeholder, a minimal dbt project
+with a documented zero-row SQL example, an empty Airflow DAG, and test guidance.
+Provide optional project context with `--project-name`, `--source-type`,
+`--environment`, `--owner`, `--description`, `--domain`,
+`--data-sensitivity`, and `--consumers`. The environment and sensitivity are
+planning notes only, not Snowflake configuration. These are templates, not a
+configured/runnable pipeline. It does not install dependencies, create
+credentials/profiles, connect to Snowflake, run dbt, or deploy Airflow. Review
+the preview and confirm creation (or pass `--yes` for automation).
 Initialization first reports **greenfield** (no existing project signals) or
 **brownfield** (existing local Snowflake/dbt configuration, project profile, or
 populated code folders), with the evidence. Installed kit assets and an empty
 pipeline layout alone do not mark a project as brownfield.
 Use `--detect-only` for a read-only classification. Existing projects require
 explicit `--allow-existing` approval before missing folders can be added;
-`--yes` alone does not bypass that check. In Copilot, `/snowflake-init` offers
-local layout review, additive folder creation, or cancellation for brownfield
-projects. Unless `--no-git` is passed, it also runs `git init` when the target
+`--yes` alone does not bypass that check. The starter scaffold is greenfield-only;
+existing project signals require a separate reviewed workflow and never enable
+starter-file generation. In Copilot, `/snowflake-init` offers folder-only or
+starter-file setup for greenfield projects, and local layout review, additive
+folder creation, or cancellation for brownfield projects. Unless `--no-git` is
+passed, it also runs `git init` when the target
 is not already in a repository. Existing repositories and parent repositories
 are not reinitialized and do not get a nested repository. Git initialization
 does not add files, create commits, configure remotes, or publish anything.
 After initializing a Git repository, rerun `install.sh` if you want to activate
 the staged secret-scanning hook. No account audit or overwrite mode is included.
 
-This separate initialization creates the following folders, preserving existing contents:
+### Generate a dbt model
+
+After `/snowflake-init` (or in an existing dbt project), use `/snowflake-dbt-model`
+to inspect conventions and prepare one model with matching YAML documentation.
+The workflow uses the existing dbt project root and asks for the exact upstream
+relation/model, selected columns, and any tests before generating files.
+Preview from the repository root with the required model details:
+
+```bash
+python3 scripts/scaffold_dbt_model.py \
+  --target pipelines/dbt --layer staging --domain sales \
+  --model-name stg_sales__orders \
+  --source-name sales_source --source-table orders \
+  --column order_id --column order_total \
+  --dry-run
+```
+
+The helper only writes local `.sql` and `.yml` files after approval, refuses
+conflicts, and never invokes dbt or connects to Snowflake.
+
+Initialization creates the following folders, preserving existing contents:
 
 ```text
 pipelines/
@@ -140,9 +181,12 @@ pipelines/
 `-- orchestration/airflow/dags/
 ```
 
-These are empty code folders, not a runnable dbt or Airflow project.
-No example models, DAGs, credentials, or pipeline configuration files are generated.
-Empty directories are not tracked by Git; add implementation files when ready.
+Folder-only initialization creates empty code folders, not a runnable dbt or
+Airflow project. The optional scaffold creates clearly marked example model/DAG
+templates and minimal dbt project configuration, but no credentials or runtime
+dependencies. The dbt example creates a zero-row relation only if you later
+configure a profile and run dbt. Empty directories are not tracked by Git; add
+implementation files when ready.
 
 ### Python environment
 
@@ -260,8 +304,10 @@ Workspace prompts include
 repository audit and optional approved, bounded account metadata review,
 [`/snowflake-check`](.github/prompts/snowflake-check.prompt.md) for local
 prerequisite checks and an approved Snowflake CLI connection test,
+[`/snowflake-dbt-model`](.github/prompts/snowflake-dbt-model.prompt.md) for
+reviewed generation of one dbt model and matching YAML documentation,
 [`/snowflake-init`](.github/prompts/snowflake-init.prompt.md) for explicitly
-creating the agreed empty pipeline folders,
+creating the agreed pipeline folders or optional greenfield starter project,
 [`/snowflake-kit-status`](.github/prompts/snowflake-kit-status.prompt.md) for a
 read-only local kit health check,
 [`/snowflake-kit-update`](.github/prompts/snowflake-kit-update.prompt.md) for a

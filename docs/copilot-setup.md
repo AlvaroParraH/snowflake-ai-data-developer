@@ -254,16 +254,46 @@ bypassed locally; it is not a substitute for CI secret scanning or credential
 rotation. Remove secrets from staged content and rotate any real exposed values.
 No SQL linting is included in this hook; use `/snowflake-sql-check` separately.
 
-##### Initialize project folders separately
+##### Initialize project folders or a project starter scaffold
 
-The installer adds `/snowflake-init` and `scripts/init_project.py`; it does not
-create pipeline folders. After adopting the kit, invoke `/snowflake-init` in
-Copilot Chat or run the script from the target project's root:
+The installer adds `/snowflake-init`, `scripts/init_project.py`, and
+`scripts/scaffold_snowflake_project.py`; it does not create project files by default. After
+adopting the kit, invoke `/snowflake-init` in Copilot Chat or run the script
+from the target project's root:
 
 ```bash
 python3 scripts/init_project.py --target /path/to/existing-project --dry-run
 python3 scripts/init_project.py --target /path/to/existing-project
 ```
+
+Folder-only initialization is the default. For a greenfield starter scaffold,
+add `--scaffold` to both preview and execution:
+
+```bash
+python3 scripts/init_project.py --target /path/to/new-project --dry-run --scaffold
+python3 scripts/init_project.py --target /path/to/new-project --scaffold
+```
+
+The context-aware starter scaffold adds a root `.gitignore` and README,
+`docs/project-profile.md`, area README guides, an unimplemented
+source-aware Bronze Python placeholder, a minimal dbt project with model
+documentation, dbt test/macro/snapshot guidance, and a deterministic zero-row
+SQL example, an empty-task Airflow DAG, and root test guidance. Optional
+project name, source type, initial environment, owner/team, purpose, domain,
+data sensitivity, and consumers are
+captured as documentation context. They do not configure Snowflake objects,
+accounts, roles, credentials, or deployment targets. The scaffold does not
+install dependencies, create connection profiles, connect to Snowflake, run
+dbt, or deploy Airflow. The dbt example can create a zero-row relation if you
+later configure an approved profile and run it. Scaffolding is rejected when
+brownfield signals exist and never overwrites existing files.
+
+For one model in an existing dbt project, use `/snowflake-dbt-model`. It
+inspects the local project conventions, then previews one SQL model and its
+matching YAML documentation. The `scripts/scaffold_dbt_model.py` helper
+requires explicit layer, name, upstream, and column inputs; source declarations
+must already exist and be reviewed before using `source()`. It refuses file
+conflicts and never runs dbt or connects to Snowflake.
 
 The script requires Python 3.10+ and Git by default; it does not require uv, a
 virtual environment or network access. Use `--no-git` to skip Git and avoid the
@@ -311,26 +341,29 @@ pipelines/
 `-- orchestration/airflow/dags/
 ```
 
-Missing folders appear as `MKDIR` in the initialization preview. Existing folders and their
+Missing folders appear as `MKDIR` in the initialization preview. When selected,
+starter files appear as `CREATE`. Existing folders and their
 contents are preserved; files blocking a required folder or symlink destinations
 stop initialization before any writes. Repeat initialization restores missing
 folders; rerunning the installer does not. The script refuses the kit checkout,
 home and filesystem root. For a project using another layout, explicitly approve
 adding this parallel layout rather than assuming a migration.
-Neither installation nor initialization moves existing pipelines or generates models, DAGs,
-`dbt_project.yml`, Python manifests, or pipeline runtime configuration. These empty
-code folders are not a runnable project and are not tracked by Git until files
-are added. Initialization `--dry-run` creates neither folders nor repository.
-No starter files, `.gitkeep`, account auditing, Snowflake connections or
-deployment are performed. Filesystem failures report partial
-directory operations; inspect the target before retrying.
+Neither installation nor initialization moves existing pipelines or creates
+credentials, Python manifests, lockfiles, or pipeline runtime configuration.
+The optional starter files are templates, not a runnable production project;
+folder-only empty directories are not tracked by Git until files are added.
+Initialization `--dry-run` creates neither folders nor repository. No `.gitkeep`,
+account auditing, Snowflake connections or deployment are performed. Filesystem
+failures report partial directory/file operations; inspect the target before retrying.
 
 Installed assets:
 
 - Four focused Snowflake custom agents under `.github/agents/`.
 - All fifteen full skills under `.github/skills/`, including discovery metadata.
 - `.githooks/pre-commit` and `scripts/scan_secrets.py` for staged secret scanning.
-- All eight `.github/prompts/` workflows, `scripts/init_project.py`, and supporting Markdown/SVG files under
+- All ten `.github/prompts/` workflows; `scripts/init_project.py`,
+  `scripts/scaffold_snowflake_project.py`, `scripts/scaffold_dbt_model.py`,
+  and supporting Markdown/SVG files under `docs/`.
   `docs/`, preserving relative links.
 - A marked Snowflake guidance block appended to
   `.github/copilot-instructions.md`. Existing project text is preserved.

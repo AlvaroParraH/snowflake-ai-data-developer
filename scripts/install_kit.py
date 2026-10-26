@@ -150,7 +150,9 @@ def payloads() -> dict[Path, bytes]:
     if not agents:
         raise ValueError("No custom agents found under .github/agents/.")
     for relative in (Path(".githooks/pre-commit"), Path("scripts/scan_secrets.py"),
-                     Path("scripts/init_project.py")):
+                     Path("scripts/init_project.py"),
+                     Path("scripts/scaffold_snowflake_project.py"),
+                     Path("scripts/scaffold_dbt_model.py")):
         source = ROOT / relative
         if source.is_symlink() or not source.is_file():
             raise ValueError(f"Missing or symlinked script/hook asset: {relative}")
