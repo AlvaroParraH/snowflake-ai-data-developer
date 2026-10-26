@@ -60,7 +60,120 @@ uv is a prerequisite for the project installer and the convention for Python
 pipeline development. It is not needed merely to read this documentation or
 its skills.
 
-## Install into a project
+## Shared installation for VS Code Copilot
+
+To keep the kit outside your projects, build a shared agent plugin:
+
+```bash
+bash install.sh --shared --dry-run
+bash install.sh --shared --yes
+```
+
+The default destination is `~/.snowflake-ai-data-developer`. Use
+`--target /absolute/path/to/shared-kit` to choose another empty directory.
+The shared installer needs an existing Python 3.10+ with `venv`/`ensurepip`
+support. After approval, it creates the kit's own `.venv/` inside the shared
+directory, using that interpreter and bundled pip without network downloads.
+No third-party packages, CLIs, credentials, local MCP servers, Git hooks, or editor
+settings are installed. Optional approved remote MCP registration is described
+below. Shared workflows use this kit interpreter; project
+dependencies belong in a separate project environment. `/snowflake-init`
+does not automatically create a project `.venv`.
+
+The default kit interpreter is `~/.snowflake-ai-data-developer/.venv/bin/python`
+on macOS/Linux (`.venv/Scripts/python.exe` on Windows). Virtual environments
+are not relocatable: rebuild the bundle at its final path if moving it.
+If environment creation fails, the installer reports failure and leaves the
+partial directory for inspection; it does not overwrite it on retry.
+
+Register the resulting folder in **VS Code User settings**, not workspace
+settings (replace the example with your absolute path):
+
+```json
+{
+  "chat.pluginLocations": {
+    "/Users/your-name/.snowflake-ai-data-developer": true
+  }
+}
+```
+
+Merge this entry with existing settings; do not replace the settings file.
+Agent plugins must be enabled and permitted by your organization's policy.
+`chat.pluginLocations` is experimental and requires a supporting VS Code
+version. Check **Chat: Open Customizations** for the plugin and verify
+`/snowflake-init` and `/snowflake-dbt-model` are available in your chosen
+harness. Discovery in a running editor is a separate check from building
+the package.
+
+The bundle exposes fifteen guidance skills, ten workflow skills (the same
+workflow names as the project prompts), and four Copilot agents. Workflow
+skills read the canonical prompt files inside the bundle; no duplicated
+workflow source is maintained. Scoped safety guidance loads with each skill,
+not as global instructions for unrelated projects. Shared helpers generate
+only approved project files in the selected project; do not copy the bundle
+into it.
+
+Existing project-local installations are not removed automatically. Avoid
+enabling both copies in the same workspace; disable the shared plugin there
+until you explicitly review removal of project-local kit assets. Never remove
+customized files or project profiles as an automatic migration. For updates,
+build into a fresh shared directory, validate it, and switch the user setting;
+the shared installer refuses nonempty destinations and does not overwrite.
+
+See the [VS Code plugin documentation](https://code.visualstudio.com/docs/agent-customization/agent-plugins)
+and [format reference](https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference).
+
+### Optional shared remote MCP setup
+
+Shared installation accepts `--setup-mcp` to collect an approved remote endpoint,
+authentication and an explicit user configuration path. MCP setup is optional;
+`--yes` never substitutes for administrator approval. No server, Snowflake
+object, grant, authentication flow or connection test is run.
+
+Choose the configuration for your harness:
+
+- **Copilot global:** use **MCP: Add Server > Global > Copilot Global**.
+  The file is `$COPILOT_HOME/mcp-config.json`, falling back to
+  `~/.copilot/mcp-config.json`. Use `--mcp-format copilot`, approved bearer
+  authentication and repeated exact `--mcp-tool` names. The helper does not
+  support fixed-client OAuth in this format.
+- **VS Code Local harness:** use **MCP: Open User Configuration** to obtain
+  your active user-profile MCP path. Use `--mcp-format vscode` (the default).
+  Fixed-client OAuth requires `--mcp-oauth-client-id` with the administrator's
+  public client ID. This user-profile format is not universal across harnesses.
+
+For example, after replacing all sample values with approved details, preview
+a fresh shared installation with Copilot-global registration:
+
+```bash
+bash install.sh --shared --dry-run \
+  --mcp-config "$HOME/.copilot/mcp-config.json" \
+  --mcp-format copilot \
+  --mcp-endpoint "https://approved-host.example/approved-mcp-path" \
+  --mcp-auth bearer --mcp-tool approved_metadata_tool --mcp-approved
+```
+
+After reviewing the exact preview, replace `--dry-run` with `--yes`.
+For an already installed kit, use its standalone helper instead of reinstalling:
+
+```bash
+"$HOME/.snowflake-ai-data-developer/.venv/bin/python" \
+  "$HOME/.snowflake-ai-data-developer/scripts/setup_mcp.py" --setup-mcp
+```
+
+Pass `--mcp-format copilot` and exact `--mcp-tool` names for the global format.
+The helper previews the server entry before confirmation, preserves unrelated
+servers, and refuses conflicting Snowflake entries, symlinks, or JSONC merges.
+It also supports explicit arguments with `--dry-run` and `--yes`.
+Bearer credentials remain outside configuration: supply `SNOWFLAKE_MCP_TOKEN`
+through the environment of the host running your session. The helper writes
+only the format-appropriate variable reference, never a token.
+For OAuth, complete browser sign-in in VS Code. Review trust and tool access
+in the selected client; registration is not permission to invoke tools.
+No live connection is verified during setup. Do not duplicate the server
+in each project's configuration.
+
+## Install into a project (alternative)
 
 Use Git, Python 3.10+, Bash, and the Snowflake CLI (`snow`) to run the
 [project-local installer](install.sh). It checks Git, Snowflake CLI, and uv on

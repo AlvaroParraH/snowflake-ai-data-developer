@@ -21,6 +21,20 @@ VS Code workspace configuration after the administrator has approved the
 endpoint, exposed tools and client authentication compatibility. It supports
 strict JSON merges only; use this workflow for JSONC or complex OAuth setup.
 Neither path starts a server or tests a Snowflake connection.
+For a shared installation, `scripts/setup_mcp.py` in the shared kit configures
+an explicit user MCP file without copying kit assets into projects. The shared
+installer also accepts these options with `--setup-mcp`. Use
+`--mcp-format vscode` for user-profile `servers` configuration and fixed-client
+OAuth, or `--mcp-format copilot` for global `mcpServers` configuration with
+approved bearer authentication and repeated exact `--mcp-tool` names.
+The portable path does not support fixed-client OAuth in this helper; stop
+rather than assuming VS Code OAuth fields work in a different harness.
+Use **MCP: Add Server > Global > Copilot Global** to identify the global file,
+or **MCP: Open User Configuration** for the Local harness user-profile file.
+Supply its absolute path as `--mcp-config`; never guess an active profile path.
+Preview with `--dry-run`, then obtain confirmation before using `--yes`.
+Do not duplicate a shared user server in workspace configuration. Existing
+JSONC and conflicting Snowflake entries require a reviewed manual merge.
 For OAuth the installer requires `--mcp-oauth-client-id` (or the public client ID
 entered at setup time), writing the VS Code `oauth.clientId` field. VS Code
 manages sign-in and token storage; do not extract tokens from Snowflake CLI
@@ -50,7 +64,8 @@ profiles or add an Authorization header to this OAuth entry.
    administrator/client owner must resolve. Never work around this with a
    committed token, bearer string, or credential in a config file.
    For bearer authentication, use the approved host secret mechanism with an
-   environment reference such as `${env:SNOWFLAKE_MCP_TOKEN}` in VS Code, never
+   environment reference such as `${env:SNOWFLAKE_MCP_TOKEN}` in VS Code's
+   `servers` format or `${SNOWFLAKE_MCP_TOKEN}` in portable `mcpServers`, never
    a literal token. Interactive `${input:...}` variables in `.vscode/mcp.json`
    are not forwarded to Copilot harness sessions; do not propose that path
    without checking the active harness and current client support.

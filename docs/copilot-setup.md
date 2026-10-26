@@ -4,6 +4,59 @@ GitHub Copilot is an assistant target in its own right, not an alias for
 OpenAI Codex. This kit supplies Copilot-native project instructions and skill
 skills with their full guidance. It does not install or configure Codex.
 
+## Shared plugin installation
+
+For cross-project use without copying kit assets into each project, run
+`bash install.sh --shared --dry-run`, then `bash install.sh --shared --yes`.
+The shared directory defaults to `~/.snowflake-ai-data-developer`; the
+installer refuses nonempty targets and never changes editor settings.
+After approval it creates a kit-local `.venv/` using existing Python and
+bundled pip, with no downloads or third-party dependencies. Shared Python
+helpers use that environment; `/snowflake-init` does not create a project
+environment. Create project environments separately when needed. Install
+at the final path, since virtual environments cannot be safely relocated.
+Register the resulting plugin in VS Code User settings using
+`chat.pluginLocations` and confirm discovery in your selected harness.
+See the [shared installation guide](https://github.com/AlvaroParraH/snowflake-ai-data-developer#shared-installation-for-vs-code-copilot)
+for exact configuration, migration, update instructions, and compatibility
+limitations. This mode does not require the project-local files listed below.
+The fifteen knowledge skills and ten workflow skills load from the shared
+bundle; the four agents are packaged in the Copilot plugin namespace.
+Keep project-specific conventions, profiles, and pipeline code in the project.
+No global always-on instruction, authentication, MCP server, or hook is
+installed or activated. Loading a workflow is not authorization for account
+access.
+
+### Optional user-level remote MCP registration
+
+The shared installer accepts `--setup-mcp`, or run `scripts/setup_mcp.py` from
+an installed kit using its `.venv` interpreter. Supply an explicit absolute
+`--mcp-config` path; no active editor profile or account is inferred.
+Default `--mcp-format vscode` merges the user-profile `servers` format for
+the Local harness, including administrator-provisioned public OAuth client
+IDs. Use **MCP: Open User Configuration** to locate this file.
+
+For Copilot-global reuse across projects, locate the file through
+**MCP: Add Server > Global > Copilot Global** and use `--mcp-format copilot`.
+This is `$COPILOT_HOME/mcp-config.json` or `~/.copilot/mcp-config.json`.
+This helper supports approved bearer authentication in that format and
+requires exact repeated `--mcp-tool` names; it rejects wildcard tools and
+fixed-client OAuth rather than inventing unsupported fields.
+Use `${SNOWFLAKE_MCP_TOKEN}` in portable headers, versus
+`${env:SNOWFLAKE_MCP_TOKEN}` in VS Code-format headers. Supply the actual
+credential only through the supported host environment/secret mechanism.
+
+Both paths require administrator approval (`--mcp-approved` for explicit
+arguments), preview the proposed entry, preserve unrelated entries and refuse
+conflicting servers, symlinked files or parent directories, and JSONC automated
+merges. They recheck the path and file content before applying the preview.
+A dry run does not write files or prompt; incomplete explicit MCP arguments
+are errors, not a successful configuration preview. Actual writes require
+confirmation or `--yes`.
+They do not start a local server, authenticate, invoke tools, run SQL, or
+verify connectivity. Finish trust/sign-in and tool review in the chosen
+client. Existing project-local MCP configuration is not deleted or migrated.
+
 ## Project-local files
 
 | Path relative to the project root | Purpose |

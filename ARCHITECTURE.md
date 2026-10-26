@@ -1,9 +1,45 @@
 # Snowflake AI Data Developer — Architecture
 
-This document describes the design of this repository and the project-local
-kit it distributes. The kit provides Snowflake-focused guidance and optional
-local setup; it is not a Snowflake service, account bootstrapper, or global
-assistant installer.
+This document describes the source kit and its shared plugin and project-local
+distribution modes. The kit provides Snowflake-focused guidance and optional
+local setup; it is not a Snowflake service or account bootstrapper.
+
+## Shared plugin distribution
+
+`bash install.sh --shared` delegates to `scripts/install_shared.py`. It builds
+an Agent Plugins 1.0 bundle in a dedicated empty directory (by default
+`~/.snowflake-ai-data-developer`). The bundle contains the canonical assets,
+fifteen portable knowledge skill entry points, ten portable workflow skill
+entry points, and four agents under `com.github.copilot/agents/`.
+Entry points reference canonical guidance and describe relocatable kit-root
+resolution separately from the consumer project's root. Script execution uses
+the shared bundle and writes only approved project outputs.
+After approval, the builder also creates and verifies a kit-local `.venv/`
+with standard-library `venv` and bundled pip, without network downloads or
+third-party packages. Shared workflow entry points select this interpreter.
+The environment uses existing Python and must be rebuilt if the bundle moves.
+Project environments are separate and are not created by project initialization.
+
+VS Code activation is a separate user-level `chat.pluginLocations` setting.
+The builder does not modify editor settings, install CLIs, create project environments,
+or activate hooks. It never writes global always-on
+instructions. Existing project-local installations are preserved; users must
+avoid duplicate activation and review migration separately. Updates use a
+fresh bundle directory, not overwrite or deletion of installed content.
+Local bundle tests establish packaging and script behavior, not discovery in
+a running VS Code harness.
+
+Optional `--setup-mcp` delegates to `scripts/setup_mcp.py` for shared remote
+MCP registration. An explicit user configuration path, administrator-approved
+endpoint/authentication and write confirmation are required. The helper also
+runs independently for existing installations. It reuses the project
+installer's endpoint/auth validation and safe JSON merge conventions, with
+separate VS Code `servers` and Copilot-global `mcpServers` formats. The latter
+requires an exact tool allowlist and uses portable environment references.
+Fixed-client OAuth is supported only in VS Code format; unsupported portable
+OAuth configuration is rejected. No credential values, plugin MCP auto-start,
+live authentication, server creation or remote test are included. Configuration
+is previewed and checked for changes before writing; unrelated entries remain.
 
 ## System overview
 
