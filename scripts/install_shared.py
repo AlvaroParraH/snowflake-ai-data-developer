@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import venv
 
-from install_kit import ROOT, check_destination, payloads, verify_environment
-from setup_mcp import MCPPlan, add_mcp_arguments, plan_mcp
+from install_kit import ROOT, check_destination, invalid_json_constant, json_object, payloads, verify_environment
+from setup_mcp import MCPPlan, add_mcp_arguments, check_config_path, plan_mcp
 
 
 MANIFEST = {
@@ -20,6 +23,128 @@ MANIFEST = {
     "version": "1.0.0",
     "description": "Snowflake engineering skills and local project/model workflows.",
 }
+
+
+@dataclass(frozen=True)
+class RegistrationPlan:
+    path: Path
+    before: bytes
+    content: bytes
+    locations: dict[str, bool]
+
+    def preview(self) -> None:
+        print(f"VS Code User Settings: {self.path}")
+        print(json.dumps({"chat.pluginLocations": self.locations}, indent=2))
+        print("Only chat.pluginLocations changes; unrelated settings and plugins are preserved.")
+
+    def apply(self) -> None:
+        check_config_path(self.path)
+        if self.path.read_bytes() != self.before:
+            raise ValueError(f"User Settings changed after preview: {self.path}")
+        if self.before == self.content:
+            print("Plugin registration already matches; unchanged.")
+            return
+        with tempfile.NamedTemporaryFile(dir=self.path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            try:
+                stream.write(self.content)
+                stream.flush()
+                os.chmod(temporary, self.path.stat().st_mode & 0o777)
+                check_config_path(self.path)
+                if self.path.read_bytes() != self.before:
+                    raise ValueError(f"User Settings changed after preview: {self.path}")
+                os.replace(temporary, self.path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        print("Plugin location saved. Editor discovery is not yet verified.")
+
+
+def discover_vscode_settings() -> list[Path]:
+    home = Path.home()
+    if sys.platform == "darwin":
+        base = home / "Library/Application Support"
+    elif sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            raise ValueError("APPDATA is unset; supply --vscode-settings explicitly.")
+        base = Path(appdata)
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    candidates: list[Path] = []
+    for edition in ("Code", "Code - Insiders"):
+        user = base / edition / "User"
+        paths = [user / "settings.json", *sorted((user / "profiles").glob("*/settings.json"))]
+        for path in paths:
+            if path.is_file():
+                check_config_path(path)
+                candidates.append(path)
+    return candidates
+
+
+def select_vscode_settings(*, dry_run: bool) -> Path:
+    candidates = discover_vscode_settings()
+    print("Detected VS Code User Settings files (active profile is not inferred):")
+    for number, path in enumerate(candidates, 1):
+        print(f"  {number}. {path}")
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise ValueError("No saved VS Code User Settings found. Open Preferences: Open User "
+                         "Settings (JSON), save the file, and supply --vscode-settings.")
+    if dry_run or not sys.stdin.isatty():
+        raise ValueError("Multiple VS Code profiles/editions found. Select one explicitly "
+                         "with --vscode-settings, or run interactively without --dry-run.")
+    choice = input("Choose the intended settings file number (blank cancels): ").strip()
+    if not choice.isdigit() or not 1 <= int(choice) <= len(candidates):
+        raise ValueError("No valid settings selection; nothing written.")
+    return candidates[int(choice) - 1]
+
+
+def plan_registration(path: Path, target: Path, disable: list[str]) -> RegistrationPlan:
+    path = path.expanduser()
+    if not path.is_absolute():
+        raise ValueError("--vscode-settings must be an absolute User Settings file path.")
+    check_config_path(path)
+    if not path.is_file():
+        raise ValueError("Open Preferences: Open User Settings (JSON), save the file, "
+                         "and supply that exact path. No profile path is guessed.")
+    before = path.read_bytes()
+    try:
+        config = json.loads(before, object_pairs_hook=json_object, parse_constant=invalid_json_constant)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise ValueError("Automatic registration requires strict JSON User Settings. "
+                         "For JSONC/comments/trailing commas, merge chat.pluginLocations manually; "
+                         "the file has not been changed.") from error
+    if not isinstance(config, dict):
+        raise ValueError("User Settings must contain a JSON object.")
+    if config.get("chat.plugins.enabled") is False:
+        raise ValueError("Agent plugins are disabled in User Settings; enable them explicitly first.")
+    locations = config.setdefault("chat.pluginLocations", {})
+    if not isinstance(locations, dict) or any(
+        not isinstance(value, bool) for value in locations.values()
+    ):
+        raise ValueError("chat.pluginLocations must be an object with boolean values.")
+    location = str(target.expanduser().absolute())
+    for old in disable:
+        old = str(Path(old).expanduser().absolute())
+        if old == location or old not in locations:
+            raise ValueError(f"Cannot disable missing or selected plugin location: {old}")
+        locations[old] = False
+    locations[location] = True
+    content = before if json.loads(before) == config else (json.dumps(config, indent=2) + "\n").encode()
+    return RegistrationPlan(path, before, content, locations)
+
+
+def activation_steps(target: Path) -> None:
+    print("\nVS Code activation steps:")
+    print("1. Merge this into User Settings (JSON) if not registered automatically:")
+    print(json.dumps({"chat.pluginLocations": {str(target): True}}, indent=2))
+    print("2. Disable the old Snowflake plugin entry, if any; enable only one copy.")
+    print("   Existing project-local copies also need separate review to avoid duplicates.")
+    print("3. Run Developer: Reload Window.")
+    print("4. Open Chat: Open Customizations and check /snowflake-init and /snowflake-dbt-model.")
+    print("Agent plugins must be supported, enabled and permitted by organization policy.")
+    print("MCP authentication and actual editor discovery are separate checks.")
 
 
 def shared_payloads() -> dict[Path, bytes]:
@@ -96,7 +221,8 @@ install dependencies, modify account objects, or deploy.
     return files
 
 
-def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = None) -> int:
+def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = None,
+            registration: RegistrationPlan | None = None) -> int:
     if target.is_symlink():
         raise ValueError(f"Refusing symlink target: {target}")
     target = target.absolute()
@@ -112,6 +238,11 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
         raise ValueError("Shared plugin target must be empty; choose a fresh directory for updates.")
     if mcp is not None and (mcp.path == target or target in mcp.path.parents):
         raise ValueError("User MCP configuration must be outside the shared plugin directory.")
+    if registration is not None:
+        if registration.path == target or target in registration.path.parents:
+            raise ValueError("User Settings must be outside the shared plugin directory.")
+        if mcp is not None and registration.path == mcp.path:
+            raise ValueError("User Settings and MCP configuration must be different files.")
     files = shared_payloads()
     for relative in files:
         check_destination(target, relative)
@@ -119,18 +250,23 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
     print(f"Plan: {len(files)} files, 15 guidance skills and 11 workflow skills.")
     print(f"Create kit Python environment: {target / '.venv'} using {sys.executable}")
     print("Uses Python's bundled venv/pip; no downloads or third-party packages.")
-    print("No project files, editor settings, credentials or hooks will be changed.")
+    print("No project files, credentials or hooks will be changed.")
+    if registration is None:
+        print("Editor settings: unchanged.")
+    else:
+        registration.preview()
     if mcp is None:
         print("MCP: deferred. Use --setup-mcp or the shared scripts/setup_mcp.py helper later.")
     else:
         mcp.preview()
     if dry_run:
+        activation_steps(target)
         print("Dry run complete; nothing written.")
         return 0
     if not yes:
         if not sys.stdin.isatty():
             raise ValueError("Non-interactive installation requires --yes; preview with --dry-run.")
-        if input("Create this shared plugin? [y/N] ").strip().lower() not in {"y", "yes"}:
+        if input("Apply this plan, including listed User Settings/MCP changes? [y/N] ").strip().lower() not in {"y", "yes"}:
             print("Cancelled; nothing written.")
             return 0
     written = 0
@@ -147,11 +283,14 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
         verify_environment(target)
         if mcp is not None:
             mcp.apply()
+        if registration is not None:
+            registration.apply()
     except (OSError, ValueError, subprocess.SubprocessError):
         print(f"Installation interrupted after {written} files; inspect {target} before retrying.",
               file=sys.stderr)
         raise
-    print("Shared plugin created. Register this folder in VS Code to enable it.")
+    print("Shared plugin created.")
+    activation_steps(target)
     return 0
 
 
@@ -160,11 +299,24 @@ def main() -> int:
     parser.add_argument("--target", type=Path, default=Path.home() / ".snowflake-ai-data-developer")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--yes", action="store_true")
+    parser.add_argument("--register-vscode", action="store_true",
+                        help="Offer User Settings registration with preview and installation approval")
+    parser.add_argument("--vscode-settings", type=Path,
+                        help="Exact absolute file path from Preferences: Open User Settings (JSON)")
+    parser.add_argument("--disable-plugin", action="append", default=[],
+                        help="Explicit old plugin location to disable; repeat as needed")
     add_mcp_arguments(parser)
     args = parser.parse_args()
     try:
         mcp = plan_mcp(args)
-        return install(args.target.expanduser(), dry_run=args.dry_run, yes=args.yes, mcp=mcp)
+        if args.disable_plugin and not (args.register_vscode or args.vscode_settings):
+            raise ValueError("--disable-plugin requires VS Code registration.")
+        if args.register_vscode and args.vscode_settings is None:
+            args.vscode_settings = select_vscode_settings(dry_run=args.dry_run)
+        registration = (plan_registration(args.vscode_settings, args.target, args.disable_plugin)
+                        if args.vscode_settings is not None else None)
+        return install(args.target.expanduser(), dry_run=args.dry_run, yes=args.yes, mcp=mcp,
+                       registration=registration)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1

@@ -20,8 +20,19 @@ third-party packages. Shared workflow entry points select this interpreter.
 The environment uses existing Python and must be rebuilt if the bundle moves.
 Project environments are separate and are not created by project initialization.
 
-VS Code activation is a separate user-level `chat.pluginLocations` setting.
-The builder does not modify editor settings, install CLIs, create project environments,
+VS Code activation uses a user-level `chat.pluginLocations` setting.
+Optional `--register-vscode` / `--vscode-settings` registration previews an
+selected existing strict-JSON User Settings file and writes only after the
+installation plan is approved and bundle/environment creation succeeds.
+Unrelated settings and plugins are preserved; old entries are disabled only
+with explicit `--disable-plugin` paths. JSONC and symlinked paths are refused;
+file content is rechecked before replacement. Manual activation/reload/verification
+steps are always printed. The builder does not reload the editor.
+Standard stable/Insiders settings locations and named profiles are discovered
+when no explicit path is supplied. Multiple candidates require selection;
+the active profile is never inferred. Custom/portable locations require an
+explicit path. Discovery does not grant permission to write.
+Without registration the builder does not modify editor settings. It does not install CLIs, create project environments,
 or activate hooks. It never writes global always-on
 instructions. Existing project-local installations are preserved; users must
 avoid duplicate activation and review migration separately. Updates use a

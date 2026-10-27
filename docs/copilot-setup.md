@@ -9,7 +9,21 @@ skills with their full guidance. It does not install or configure Codex.
 For cross-project use without copying kit assets into each project, run
 `bash install.sh --shared --dry-run`, then `bash install.sh --shared --yes`.
 The shared directory defaults to `~/.snowflake-ai-data-developer`; the
-installer refuses nonempty targets and never changes editor settings.
+installer refuses nonempty targets. Editor settings remain unchanged unless
+registration is explicitly requested with `--register-vscode` or
+`--vscode-settings /absolute/path/to/User/settings.json`. The file must be
+the intended User Settings file. Without an explicit path, the installer
+discovers saved settings in standard stable/Insiders directories, including
+named profiles. It previews a single candidate or asks for a numbered choice
+when multiple files exist; ambiguous dry runs/non-interactive runs require
+`--vscode-settings`. Active profiles and custom user-data locations cannot be
+inferred; use **Preferences: Open User Settings (JSON)** to obtain an explicit
+path when needed. Registration previews only
+`chat.pluginLocations`, preserves unrelated settings, and requires approval
+of the installation plan. Use `--disable-plugin` for each explicit old entry
+to disable. JSONC files require manual merging; automatic registration refuses
+them without changes. Completion prints registration, reload and verification
+steps even when automatic registration is not selected.
 After approval it creates a kit-local `.venv/` using existing Python and
 bundled pip, with no downloads or third-party dependencies. Shared Python
 helpers use that environment; `/snowflake-init` does not create a project
@@ -85,13 +99,13 @@ in chat or project files.
 
 Automatic project selection uses Snowflake CLI's
 `SNOWFLAKE_DEFAULT_CONNECTION_NAME` environment variable in a project `.envrc`.
-`direnv` and its shell hook must be installed separately. Review the proposed
-`.envrc` change, then run `direnv allow` yourself to activate it. The profile
-name is not a credential, but `.envrc` is developer-specific by default;
-decide whether it belongs in `.gitignore` or should follow a team convention.
-Without `direnv`, pass the connection explicitly with Snowflake CLI’s
-`--connection` option. Optional connection testing requires separate approval
-and does not run SQL.
+This requires `direnv` and its shell hook to be installed separately. Review
+the proposed `.envrc` change, then run `direnv allow` yourself to activate it.
+The profile name is not a credential, but `.envrc` is developer-specific by
+default; decide whether it belongs in `.gitignore` or should follow a team
+convention. If you do not use `direnv`, pass the connection explicitly with
+Snowflake CLI's `--connection` option. Optional connection testing requires
+separate approval and does not run SQL.
 
 ### Configure an approved Snowflake MCP server
 

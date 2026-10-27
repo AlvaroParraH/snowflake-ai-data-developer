@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("install_shared", ROOT / "scripts/install_shared.py")
 assert SPEC is not None and SPEC.loader is not None
 installer = importlib.util.module_from_spec(SPEC)
-with patch.object(sys, "path", [str(ROOT / "scripts"), *sys.path]):
+with (patch.object(sys, "path", [str(ROOT / "scripts"), *sys.path]),
+      patch.dict(sys.modules, {SPEC.name: installer})):
     SPEC.loader.exec_module(installer)
 
 
@@ -100,6 +101,142 @@ class SharedInstallationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(list(self.target.iterdir()), [existing])
         self.assertEqual(existing.read_text(), "preserve")
+
+    def test_registration_preview_and_approval_preserve_settings(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text('{"editor.fontSize": 14}')
+        before = settings.read_bytes()
+        result = self.run_install("--vscode-settings", str(settings), "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Developer: Reload Window", result.stdout)
+        self.assertIn(str(self.target), result.stdout)
+        self.assertEqual(settings.read_bytes(), before)
+        self.assertFalse(self.target.exists())
+        result = self.run_install("--vscode-settings", str(settings))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(settings.read_bytes(), before)
+
+    def test_discovers_default_and_named_profiles_across_editions(self) -> None:
+        home = self.target.parent
+        expected = [
+            home / "Library/Application Support/Code/User/settings.json",
+            home / "Library/Application Support/Code/User/profiles/team/settings.json",
+            home / "Library/Application Support/Code - Insiders/User/settings.json",
+        ]
+        for path in expected:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}")
+        with patch.object(installer.Path, "home", return_value=home), patch.object(sys, "platform", "darwin"):
+            self.assertEqual(installer.discover_vscode_settings(), expected)
+
+    def test_discovers_linux_and_windows_settings(self) -> None:
+        base = self.target.parent / "config"
+        settings = base / "Code/User/settings.json"
+        settings.parent.mkdir(parents=True)
+        settings.write_text("{}")
+        for platform, variable in (("linux", "XDG_CONFIG_HOME"), ("win32", "APPDATA")):
+            with (self.subTest(platform=platform), patch.object(sys, "platform", platform),
+                  patch.dict(os.environ, {variable: str(base)})):
+                self.assertEqual(installer.discover_vscode_settings(), [settings])
+
+    def test_single_candidate_is_selected_without_writing(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text("{}")
+        with (patch.object(installer, "discover_vscode_settings", return_value=[settings]),
+              redirect_stdout(io.StringIO()), patch("builtins.input") as prompt):
+            self.assertEqual(installer.select_vscode_settings(dry_run=True), settings)
+        prompt.assert_not_called()
+        self.assertEqual(settings.read_text(), "{}")
+
+    def test_multiple_candidates_require_selection(self) -> None:
+        paths = [self.target.parent / "one.json", self.target.parent / "two.json"]
+        with (patch.object(installer, "discover_vscode_settings", return_value=paths),
+              redirect_stdout(io.StringIO()), patch.object(sys.stdin, "isatty", return_value=True),
+              patch("builtins.input", return_value="2")):
+            self.assertEqual(installer.select_vscode_settings(dry_run=False), paths[1])
+            with self.assertRaisesRegex(ValueError, "Multiple"):
+                installer.select_vscode_settings(dry_run=True)
+        with (patch.object(installer, "discover_vscode_settings", return_value=paths),
+              redirect_stdout(io.StringIO()), patch.object(sys.stdin, "isatty", return_value=False)):
+            with self.assertRaisesRegex(ValueError, "Multiple"):
+                installer.select_vscode_settings(dry_run=False)
+
+    def test_missing_settings_are_not_created(self) -> None:
+        with (patch.object(installer, "discover_vscode_settings", return_value=[]),
+              redirect_stdout(io.StringIO())):
+            with self.assertRaisesRegex(ValueError, "No saved"):
+                installer.select_vscode_settings(dry_run=True)
+
+    def test_detected_registration_still_requires_write_approval(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text("{}")
+        with (patch.object(installer, "discover_vscode_settings", return_value=[settings]),
+              patch.object(sys, "argv", ["install_shared", "--target", str(self.target),
+                                        "--register-vscode"]),
+              patch.object(sys.stdin, "isatty", return_value=False),
+              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO())):
+            self.assertEqual(installer.main(), 1)
+        self.assertFalse(self.target.exists())
+        self.assertEqual(settings.read_text(), "{}")
+
+    def test_registration_preserves_settings_and_disables_only_selected_copy(self) -> None:
+        settings = self.target.parent / "settings.json"
+        old = str(self.target.parent / "old-kit")
+        settings.write_text(json.dumps({
+            "editor.fontSize": 14, "chat.pluginLocations": {old: True, "/other/plugin": True},
+        }))
+        result = self.run_install("--vscode-settings", str(settings),
+                                  "--disable-plugin", old, "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(settings.read_text())
+        self.assertEqual(config["editor.fontSize"], 14)
+        self.assertEqual(config["chat.pluginLocations"], {
+            old: False, "/other/plugin": True, str(self.target): True,
+        })
+        plan = installer.plan_registration(settings, self.target, [])
+        self.assertEqual(plan.before, plan.content)
+
+    def test_registration_refuses_jsonc_invalid_shapes_and_disabled_plugins(self) -> None:
+        settings = self.target.parent / "settings.json"
+        for content in ('{// comment\n}', '{"a":1,"a":2}', '[]',
+                        '{"chat.pluginLocations": []}', '{"chat.pluginLocations":{"x":"true"}}',
+                        '{"chat.plugins.enabled":false}'):
+            with self.subTest(content=content):
+                settings.write_text(content)
+                result = self.run_install("--vscode-settings", str(settings), "--yes")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(settings.read_text(), content)
+                self.assertFalse(self.target.exists())
+
+    def test_registration_rechecks_settings_after_preview(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text("{}")
+        plan = installer.plan_registration(settings, self.target, [])
+        settings.write_text('{"new":true}')
+        with self.assertRaisesRegex(ValueError, "changed after preview"):
+            plan.apply()
+        self.assertEqual(settings.read_text(), '{"new":true}')
+
+    def test_registration_refuses_symlink_and_missing_user_file(self) -> None:
+        settings = self.target.parent / "settings.json"
+        with self.assertRaises(ValueError):
+            installer.plan_registration(settings, self.target, [])
+        original = self.target.parent / "original.json"
+        original.write_text("{}")
+        settings.symlink_to(original)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            installer.plan_registration(settings, self.target, [])
+        self.assertEqual(original.read_text(), "{}")
+
+    def test_registration_not_written_if_environment_creation_fails(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text("{}")
+        plan = installer.plan_registration(settings, self.target, [])
+        with (patch.object(installer.venv.EnvBuilder, "create", side_effect=OSError("test failure")),
+              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO())):
+            with self.assertRaises(OSError):
+                installer.install(self.target, dry_run=False, yes=True, registration=plan)
+        self.assertEqual(settings.read_text(), "{}")
 
     def test_refuses_symlink_ancestor(self) -> None:
         outside = self.target.parent / "outside"

@@ -74,8 +74,9 @@ The default destination is `~/.snowflake-ai-data-developer`. Use
 The shared installer needs an existing Python 3.10+ with `venv`/`ensurepip`
 support. After approval, it creates the kit's own `.venv/` inside the shared
 directory, using that interpreter and bundled pip without network downloads.
-No third-party packages, CLIs, credentials, local MCP servers, Git hooks, or editor
-settings are installed. Optional approved remote MCP registration is described
+No third-party packages, CLIs, credentials, local MCP servers or Git hooks
+are installed. Editor settings change only with optional approved registration.
+Optional approved remote MCP registration is described
 below. Shared workflows use this kit interpreter; project
 dependencies belong in a separate project environment. `/snowflake-init`
 does not automatically create a project `.venv`.
@@ -88,6 +89,33 @@ partial directory for inspection; it does not overwrite it on retry.
 
 Register the resulting folder in **VS Code User settings**, not workspace
 settings (replace the example with your absolute path):
+
+The installer can register it automatically with preview and approval:
+
+```bash
+bash install.sh --shared --target "$HOME/.snowflake-ai-data-developer-v2" \
+  --register-vscode --vscode-settings "/absolute/path/to/User/settings.json" --dry-run
+```
+
+Open **Preferences: Open User Settings (JSON)** to obtain the exact active
+profile file path if specifying it explicitly. After reviewing the preview,
+replace `--dry-run` with `--yes`, or omit both to approve interactively.
+With just `--register-vscode`, the installer discovers saved default and named
+profile settings in the standard VS Code and VS Code Insiders user directories
+on macOS, Linux and Windows. A single candidate is previewed automatically;
+multiple candidates require an interactive numbered selection or an explicit
+`--vscode-settings` path (also required for ambiguous dry runs). The active
+profile is not inferred. Portable/custom user-data locations require an
+explicit path. The settings file must already exist and contain strict JSON;
+JSONC comments/trailing commas require the manual merge below, without
+`--register-vscode` or `--vscode-settings`.
+
+Use repeated `--disable-plugin "/absolute/path/to/old-kit"` options to
+explicitly disable existing old entries; other plugins are never disabled
+automatically. Settings are written only after successful bundle/environment
+creation, and changed files or symlinked paths are rejected. The installer
+always prints the exact registration entry, old-copy reminder, reload and
+command-discovery steps. It does not reload VS Code or claim discovery.
 
 ```json
 {
