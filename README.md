@@ -105,7 +105,7 @@ version. Check **Chat: Open Customizations** for the plugin and verify
 harness. Discovery in a running editor is a separate check from building
 the package.
 
-The bundle exposes fifteen guidance skills, ten workflow skills (the same
+The bundle exposes fifteen guidance skills, eleven workflow skills (the same
 workflow names as the project prompts), and four Copilot agents. Workflow
 skills read the canonical prompt files inside the bundle; no duplicated
 workflow source is maintained. Scoped safety guidance loads with each skill,
@@ -208,7 +208,7 @@ reports prerequisites and planned changes: it downloads, executes and installs
 nothing.
 
 The installer copies all fifteen full skills directly into `.github/skills/`,
-all ten prompts, the project initializer and starter generators, and their
+all eleven prompts, the project initializer and starter generators, and their
 supporting documentation.
 It appends a marked guidance block to existing Copilot instructions without
 changing the original text. Conflicting files stop installation before writes;
@@ -417,6 +417,8 @@ Workspace prompts include
 repository audit and optional approved, bounded account metadata review,
 [`/snowflake-check`](.github/prompts/snowflake-check.prompt.md) for local
 prerequisite checks and an approved Snowflake CLI connection test,
+[`/snowflake-connection-setup`](.github/prompts/snowflake-connection-setup.prompt.md)
+for selecting a user-level Snowflake CLI connection per project,
 [`/snowflake-dbt-model`](.github/prompts/snowflake-dbt-model.prompt.md) for
 reviewed generation of one dbt model and matching YAML documentation,
 [`/snowflake-init`](.github/prompts/snowflake-init.prompt.md) for explicitly

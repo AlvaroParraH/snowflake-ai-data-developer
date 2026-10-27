@@ -73,7 +73,7 @@ presence/counts without dumping content:
 - `.github/copilot-instructions.md`.
 - Fifteen `.github/skills/*/SKILL.md` files, each with valid `name` and
   `description` frontmatter matching its skill directory.
-- Ten `.github/prompts/*.prompt.md` files, each with meaningful prompt
+- Eleven `.github/prompts/*.prompt.md` files, each with meaningful prompt
   metadata.
 - `scripts/install_kit.py`, `scripts/init_project.py`,
   `scripts/scaffold_snowflake_project.py`,
@@ -208,8 +208,8 @@ Give a safe one-line next step for each warning or failure. Examples:
   environment workflow; do not overwrite it.
 - Missing hook: explain that rerunning the installer can activate it after
   reviewing existing hooks, or that the target must first be a Git repository.
-- Snowflake auth skipped/failed: direct the user to `/snowflake-check` and
-  their Snowflake administrator as appropriate.
+- Snowflake auth skipped/failed: direct the user to `/snowflake-check` or
+  `/snowflake-connection-setup` and their Snowflake administrator as appropriate.
 - MCP absent: explain that MCP setup is optional and point to
   `/snowflake-mcp-setup` if requested.
 

@@ -116,7 +116,7 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
     for relative in files:
         check_destination(target, relative)
     print(f"Shared plugin: {target}")
-    print(f"Plan: {len(files)} files, 15 guidance skills and 10 workflow skills.")
+    print(f"Plan: {len(files)} files, 15 guidance skills and 11 workflow skills.")
     print(f"Create kit Python environment: {target / '.venv'} using {sys.executable}")
     print("Uses Python's bundled venv/pip; no downloads or third-party packages.")
     print("No project files, editor settings, credentials or hooks will be changed.")

@@ -71,7 +71,7 @@ class SharedInstallationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         manifest = json.loads((self.target / "plugin.json").read_text())
         self.assertEqual(manifest["name"], "snowflake-data-developer")
-        self.assertEqual(len(list((self.target / "skills").glob("*/SKILL.md"))), 25)
+        self.assertEqual(len(list((self.target / "skills").glob("*/SKILL.md"))), 26)
         self.assertEqual(len(list((self.target / "com.github.copilot/agents").glob("*.agent.md"))), 4)
         for document in self.target.rglob("*.md"):
             for link in re.findall(r"\[[^\]]+\]\(([^)]+)\)", document.read_text()):

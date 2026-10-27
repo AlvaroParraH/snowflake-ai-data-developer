@@ -104,9 +104,12 @@ class InstallerTests(unittest.TestCase):
             self.assertRegex(content, r'\A---\nname: [^\n]+\ndescription: "[^\n]+"\n---\n')
             self.assertGreater(len(content.splitlines()), 50, skill)
             self.assertNotIn("../../../skills/", content)
-        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 10)
+        self.assertEqual(len(list((self.target / ".github/prompts").glob("*.prompt.md"))), 11)
         self.assertTrue((self.target / ".github/prompts/snowflake-audit.prompt.md").is_file())
         self.assertTrue((self.target / ".github/prompts/snowflake-check.prompt.md").is_file())
+        self.assertTrue(
+            (self.target / ".github/prompts/snowflake-connection-setup.prompt.md").is_file()
+        )
         self.assertTrue(
             (self.target / ".github/prompts/snowflake-kit-status.prompt.md").is_file()
         )

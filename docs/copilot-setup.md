@@ -20,7 +20,7 @@ Register the resulting plugin in VS Code User settings using
 See the [shared installation guide](https://github.com/AlvaroParraH/snowflake-ai-data-developer#shared-installation-for-vs-code-copilot)
 for exact configuration, migration, update instructions, and compatibility
 limitations. This mode does not require the project-local files listed below.
-The fifteen knowledge skills and ten workflow skills load from the shared
+The fifteen knowledge skills and eleven workflow skills load from the shared
 bundle; the four agents are packaged in the Copilot plugin namespace.
 Keep project-specific conventions, profiles, and pipeline code in the project.
 No global always-on instruction, authentication, MCP server, or hook is
@@ -74,6 +74,24 @@ Streamlit in Snowflake, Cortex AI Functions, Cortex Search and RAG, Semantic
 Views and Cortex Analyst, and deployment/promotion.
 Maintain discovery metadata and full guidance together in each skill file;
 there is no separate root-level skill copy.
+
+### Select a user-level Snowflake CLI connection for a project
+
+Run `/snowflake-connection-setup` to associate a project with an existing
+named Snowflake CLI connection. The profile and authentication remain in the
+user's Snowflake CLI configuration. If needed, create a profile interactively
+in the user's own terminal with `snow connection add`; never put credentials
+in chat or project files.
+
+Automatic project selection uses Snowflake CLI's
+`SNOWFLAKE_DEFAULT_CONNECTION_NAME` environment variable in a project `.envrc`.
+`direnv` and its shell hook must be installed separately. Review the proposed
+`.envrc` change, then run `direnv allow` yourself to activate it. The profile
+name is not a credential, but `.envrc` is developer-specific by default;
+decide whether it belongs in `.gitignore` or should follow a team convention.
+Without `direnv`, pass the connection explicitly with Snowflake CLI’s
+`--connection` option. Optional connection testing requires separate approval
+and does not run SQL.
 
 ### Configure an approved Snowflake MCP server
 

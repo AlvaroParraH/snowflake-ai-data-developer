@@ -9,7 +9,7 @@ local setup; it is not a Snowflake service or account bootstrapper.
 `bash install.sh --shared` delegates to `scripts/install_shared.py`. It builds
 an Agent Plugins 1.0 bundle in a dedicated empty directory (by default
 `~/.snowflake-ai-data-developer`). The bundle contains the canonical assets,
-fifteen portable knowledge skill entry points, ten portable workflow skill
+fifteen portable knowledge skill entry points, eleven portable workflow skill
 entry points, and four agents under `com.github.copilot/agents/`.
 Entry points reference canonical guidance and describe relocatable kit-root
 resolution separately from the consumer project's root. Script execution uses
