@@ -41,6 +41,69 @@ No global always-on instruction, authentication, MCP server, or hook is
 installed or activated. Loading a workflow is not authorization for account
 access.
 
+### Short command names with personal skills
+
+Some clients namespace plugin skills as
+`/snowflake-data-developer:snowflake-audit`. To expose `/snowflake-audit`
+across projects instead, create personal skill shortcuts to an existing shared
+bundle using the source checkout's installer:
+
+```bash
+bash install.sh --shared --target "/absolute/path/to/shared-bundle" \
+  --personal-skills --dry-run
+bash install.sh --shared --target "/absolute/path/to/shared-bundle" \
+  --personal-skills --yes
+```
+
+By default, shortcuts go under `~/.copilot/skills/<name>/SKILL.md`. Use
+`--skills-dir "/absolute/path/to/personal/skills"` only for a personal location
+supported by your client. These small entry points reference the existing
+shared bundle with absolute file links; they do not copy canonical guidance,
+install tools, or change credentials/MCP. Keep the bundle at its original path
+and update it separately. Conflicting personal skills or symlinked paths are
+refused before writing; identical shortcuts are left unchanged on repeat runs.
+
+Disable the original Snowflake plugin to avoid duplicate discovery. To preview
+and automatically disable its existing registration in an explicit VS Code User
+Settings file, add
+`--vscode-settings "/absolute/path/to/User/settings.json"` to both commands.
+Only that bundle's `chat.pluginLocations` entry is disabled; unrelated
+settings/plugins are preserved. JSONC requires manual merging. If the plugin
+was installed through another interface, disable it there instead.
+
+**Trade-off:** disabling the plugin also hides its four custom agents; personal
+shortcuts expose only the skills/workflows. Do not duplicate project-local
+Snowflake skills/prompts alongside these without reviewing discovery conflicts.
+Reload VS Code/start a new chat, then check `/snowflake-audit` in command
+completion. File validation alone does not establish running-client discovery.
+
+### Updating either installation mode
+
+From the trusted current source checkout, preview with
+`bash install.sh --shared --target "<shared-bundle>" --update --dry-run`
+or `bash install.sh --target "<project-root>" --update --dry-run`. After
+reviewing creates/replacements/deletions and the backup plan, replace
+`--dry-run` with `--yes` (or omit it for an interactive confirmation).
+Do not target VS Code's plugin cache. Reload VS Code after updating.
+
+Current installations record kit-owned hashes in
+`.snowflake-kit-manifest.json`. Updates reject locally modified assets and
+untracked collisions before writing, and back up changed originals and the
+old manifest under `.snowflake-kit-backups/<unique-update-id>/`. Only obsolete,
+unchanged tracked files are removed; directories and custom files remain.
+Project instructions outside the managed block are preserved.
+
+No tools, environments, active Git hooks, MCP configuration, editor settings,
+or credentials are changed by an update. Those setup actions remain separate.
+Keep the manifest and inspect backups before cleanup; failures report partial
+operations and do not silently roll back.
+
+Legacy installations without tracking cannot be overwritten safely. Shared
+users should build once into a fresh directory and switch registration.
+Project-local users must review/merge old assets and rerun the normal installer
+when the files match the current kit to record a baseline. No force/adopt
+option bypasses this check.
+
 ### Removing an installation
 
 There is no uninstall command. Remove files manually so local edits, unrelated
@@ -502,13 +565,15 @@ Installed assets:
 - Four focused Snowflake custom agents under `.github/agents/`.
 - All fifteen full skills under `.github/skills/`, including discovery metadata.
 - `.githooks/pre-commit` and `scripts/scan_secrets.py` for staged secret scanning.
-- All ten `.github/prompts/` workflows; `scripts/init_project.py`,
+- All eleven `.github/prompts/` workflows; `scripts/init_project.py`,
   `scripts/scaffold_snowflake_project.py`, `scripts/scaffold_dbt_model.py`,
   and supporting Markdown/SVG files under `docs/`.
   `docs/`, preserving relative links.
 - A marked Snowflake guidance block appended to
   `.github/copilot-instructions.md`. Existing project text is preserved.
   Kit-maintenance instructions are not copied into application instructions.
+- `scripts/installation_state.py` and `.snowflake-kit-manifest.json` for
+  reviewed future updates.
 
 Besides the kit assets, the installer creates `.venv` by default, and optionally
 creates/merges `.vscode/mcp.json`. Pipeline creation is a separate explicit step. It does not

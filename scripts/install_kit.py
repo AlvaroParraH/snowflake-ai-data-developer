@@ -12,6 +12,10 @@ import sys
 import tempfile
 from urllib.parse import urlsplit
 
+from installation_state import (
+    MANIFEST, prepare_manifest, save_manifest, update as update_installation,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 START = b"<!-- snowflake-ai-data-developer:start -->"
@@ -152,7 +156,8 @@ def payloads() -> dict[Path, bytes]:
     for relative in (Path(".githooks/pre-commit"), Path("scripts/scan_secrets.py"),
                      Path("scripts/init_project.py"),
                      Path("scripts/scaffold_snowflake_project.py"),
-                     Path("scripts/scaffold_dbt_model.py")):
+                     Path("scripts/scaffold_dbt_model.py"),
+                     Path("scripts/installation_state.py")):
         source = ROOT / relative
         if source.is_symlink() or not source.is_file():
             raise ValueError(f"Missing or symlinked script/hook asset: {relative}")
@@ -327,21 +332,43 @@ def activate_hook(destination: Path) -> None:
 def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = False,
             *, skip_venv: bool = False, mcp_endpoint: str | None = None,
             mcp_auth: str | None = None, mcp_approved: bool = False,
-            mcp_oauth_client_id: str | None = None, skip_hooks: bool = False) -> int:
+            mcp_oauth_client_id: str | None = None, skip_hooks: bool = False,
+            update: bool = False) -> int:
     if not target.is_dir():
         raise ValueError("Target must be an existing project directory.")
+    if target.is_symlink():
+        raise ValueError("Refusing symlink target.")
     target = target.resolve()
     if target == ROOT or ROOT in target.parents:
         raise ValueError("Choose a target outside the source kit.")
 
     files = payloads()
     instructions = Path(".github/copilot-instructions.md")
+    conflicts: list[str] = []
+    skill_names = {
+        relative.parent.name
+        for relative in files
+        if relative.parts[:2] == (".github", "skills") and relative.name == "SKILL.md"
+    }
+    for directory in (".agents/skills", ".claude/skills"):
+        for name in sorted(skill_names):
+            alternate = target / directory / name
+            if alternate.exists() or alternate.is_symlink():
+                conflicts.append(f"{directory}/{name}: duplicate skill discovery root")
+    if update:
+        if mcp_endpoint is not None or mcp_auth is not None or mcp_approved or mcp_oauth_client_id is not None:
+            raise ValueError("--update cannot change MCP configuration; run MCP setup separately.")
+        if conflicts:
+            raise ValueError("Conflicts found; no files written:\n  " + "\n  ".join(conflicts))
+        files[instructions] = instruction_content(b"")
+        return update_installation(target, files, "project", dry_run=dry_run, yes=assume_yes)
     check_destination(target, instructions)
     destination = target / instructions
     if destination.exists() and not destination.is_file():
         raise ValueError(f"Not a regular file: {destination}")
     original = destination.read_bytes() if destination.exists() else None
     files[instructions] = instruction_content(original or b"")
+    tracking = prepare_manifest(target, files, "project")
     mcp = Path(".vscode/mcp.json")
     mcp_original = None
     if mcp_endpoint is not None:
@@ -359,17 +386,6 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
     create_environment = not skip_venv and needs_environment(target)
 
     changes: list[tuple[Path, bytes, bytes | None]] = []
-    conflicts: list[str] = []
-    skill_names = {
-        relative.parent.name
-        for relative in files
-        if relative.parts[:2] == (".github", "skills") and relative.name == "SKILL.md"
-    }
-    for directory in (".agents/skills", ".claude/skills"):
-        for name in sorted(skill_names):
-            alternate = target / directory / name
-            if alternate.exists() or alternate.is_symlink():
-                conflicts.append(f"{directory}/{name}: duplicate skill discovery root")
     unchanged = 0
     for relative, content in sorted(files.items()):
         check_destination(target, relative)
@@ -429,6 +445,7 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
         action = "MERGE" if relative == mcp else "APPEND"
         print(f"  {action if before is not None else 'CREATE'} {relative}")
     print(f"Unchanged: {unchanged}; planned writes: {len(changes)}")
+    print(f"Tracking: {MANIFEST} (kit-owned hashes only; no credentials).")
     if conflicts:
         raise ValueError(
             "Conflicts found; no files written. Review/merge these files manually, then rerun:\n  "
@@ -476,6 +493,7 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
     if not changes and not create_environment:
         if hook is not None:
             activate_hook(hook)
+        save_manifest(target, tracking)
         print("Already installed; no files changed.")
         return 0
 
@@ -518,6 +536,7 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
             written += 1
         if hook is not None:
             activate_hook(hook)
+        save_manifest(target, tracking)
     except (OSError, ValueError, subprocess.CalledProcessError):
         print(f"Installation interrupted after {written} file writes; "
               "inspect the target before retrying.",
@@ -552,6 +571,8 @@ def main() -> int:
     )
     parser.add_argument("--target", type=Path, required=True, help="Existing target project root")
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing")
+    parser.add_argument("--update", action="store_true",
+                        help="Back up and update unchanged manifest-owned kit assets only")
     parser.add_argument("--yes", action="store_true",
                         help="Approve the displayed plan, including installation of missing tools")
     parser.add_argument("--no-install", action="store_true",
@@ -573,6 +594,8 @@ def main() -> int:
     if sys.version_info < (3, 10):
         parser.error("Python 3.10+ is required.")
     try:
+        if args.update and args.setup_mcp:
+            raise ValueError("--update cannot be combined with --setup-mcp.")
         if args.setup_mcp and not args.mcp_endpoint:
             if args.dry_run:
                 print("MCP setup pending: actual --setup-mcp will ask for the approved endpoint, "
@@ -594,7 +617,8 @@ def main() -> int:
         return install(args.target.expanduser(), args.dry_run, args.yes, args.no_install,
                        skip_venv=args.skip_venv, mcp_endpoint=args.mcp_endpoint,
                        mcp_auth=args.mcp_auth, mcp_approved=args.mcp_approved,
-                       mcp_oauth_client_id=args.mcp_oauth_client_id, skip_hooks=args.skip_hooks)
+                       mcp_oauth_client_id=args.mcp_oauth_client_id, skip_hooks=args.skip_hooks,
+                       update=args.update)
     except (OSError, ValueError, EOFError, subprocess.CalledProcessError) as error:
         print(f"Error: {error}", file=sys.stderr)
         if isinstance(error, subprocess.CalledProcessError) and error.stderr:

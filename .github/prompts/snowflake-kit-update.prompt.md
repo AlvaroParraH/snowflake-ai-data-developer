@@ -1,16 +1,17 @@
 ---
 name: snowflake-kit-update
-description: "Safely refresh the Snowflake AI Data Developer assets in the current project from an approved kit source checkout, showing upstream changes and preserving local customizations."
+description: "Update shared or project-local Snowflake kit installations from an approved source checkout with previews, backups, and protection for local customizations."
 argument-hint: "Optional: approved local kit checkout path and --yes after reviewing the preview"
 agent: "agent"
 ---
 
 # /snowflake-kit-update — Refresh Snowflake kit assets
 
-Update the project-local Snowflake Copilot kit from an approved source checkout.
-Unlike a global kit updater, this workflow updates only the current project's
-Copilot assets by invoking that source checkout's documented installer.
-It never changes Snowflake account state.
+Update a shared or project-local Snowflake Copilot kit from an approved source
+checkout using its `--update` installer mode. Confirm the installation mode and
+exact target first. For shared mode, target the registered source bundle, never
+the editor/plugin-manager cache. Do not infer the target from this prompt's
+location. It never changes Snowflake account state.
 
 ## Usage
 
@@ -26,7 +27,7 @@ provided, ask the user to select the trusted kit checkout. Do not guess a path.
 
 ## What it does
 
-1. Confirms the target is the current project root and the source is a separate,
+1. Confirms the target is the intended project root or shared source bundle and the source is a separate,
    trusted Snowflake kit Git checkout with `install.sh` and
    `scripts/install_kit.py`.
 2. Checks Git state and determines whether an update is available on the
@@ -38,14 +39,24 @@ provided, ask the user to select the trusted kit checkout. Do not guess a path.
    project, reviews the exact file actions/conflicts, then asks before applying.
 6. Reports updated/equal/conflicting assets and required VS Code reload steps.
 
-The installer is additive and intentionally refuses to overwrite differing
-installed prompt/skill/documentation files. A conflict is evidence that local
-content differs; stop and offer a manual diff/merge. Do not bypass the
-installer's conflict checks or replace files directly.
+Update mode requires `.snowflake-kit-manifest.json`, written by current
+installers. It replaces or deletes only kit-owned files that still match their
+recorded hashes. It backs up changed originals and the old manifest under
+`.snowflake-kit-backups/<unique-update-id>/` before mutation. Project instructions
+are managed by block, preserving surrounding project text. Local modifications
+or untracked collisions abort the whole plan before writes; stop and offer a
+manual diff/merge. Do not bypass conflicts or replace files directly.
+
+Older installations without tracking are not adopted blindly. For shared mode,
+build into a fresh directory and switch registration once. For project mode,
+review/merge the old assets and rerun the normal installer when they match the
+current kit to establish tracking. Do not delete the old installation or
+manufacture a manifest to bypass ownership checks.
 
 ## Safety requirements
 
-- Read repository instructions and inspect the current project's Git status.
+- Read repository instructions and inspect the target project's Git status
+  (for project-local mode; a dedicated shared bundle need not be a Git repo).
   If there are uncommitted user changes, report them and stop before updating
   project assets. Do not stage, stash, reset, commit, or discard them.
 - The source kit checkout must also be clean, including untracked files. If it
@@ -62,17 +73,17 @@ installer's conflict checks or replace files directly.
 - Never download or execute an unreviewed script. Run only the `install.sh`
   and `scripts/install_kit.py` from the selected, trusted kit checkout, after
   reviewing their current contents and behavior.
-- First run `bash <kit-path>/install.sh --target <project-root> --dry-run
-  --no-install`. This must not write project files or install tools. If the
+- First run `bash <kit-path>/install.sh --target <target-root> --update --dry-run`
+  (put `--shared` immediately after `install.sh` for shared mode).
+  This must not write files or install tools. If the
   current installer does not support these flags, stop and report the local
   help/documentation; do not guess alternate commands.
-- Review every planned file action and conflict. The installer may also
-  activate the staged secret-scanning hook and verify `.venv`. If either could
-  change or perform work, explain it and ask for approval; use `--skip-hooks`
-  or `--skip-venv` only when the user chooses those options. Do not request
-  MCP setup or provide credentials as part of a kit refresh.
-- Apply only after explicit confirmation of the source commit, target project,
-  file plan, hook behavior, and environment behavior. Use the installer
+- Review every planned file action and conflict. Update mode leaves active Git
+  hooks, `.venv`, credentials, MCP and editor settings untouched. It does not
+  install tools, execute installed kit scripts, or authenticate. Do not combine
+  it with MCP setup or VS Code registration.
+- Apply only after explicit confirmation of the source commit, target,
+  file plan, deletions and backup location. Use the installer
   without `--dry-run` and with `--yes` only after that complete plan is
   approved. If a conflict appears or the plan changes, stop and re-preview.
 - Do not connect to Snowflake, run SQL/dbt, create or alter account objects,
@@ -84,7 +95,7 @@ installer's conflict checks or replace files directly.
 
 ### 1. Confirm target and source
 
-Resolve and display the current project root. Confirm the selected source path
+Resolve and display the selected target root and installation mode. Confirm the selected source path
 is a Git checkout distinct from the target. Check for the expected installer
 files using read-only filesystem inspection.
 
@@ -103,7 +114,8 @@ checkout indicates otherwise.
 
 ### 2. Refuse dirty or unsafe states
 
-Require clean target and source worktrees. If the source is not on its
+Require a clean target project worktree and source worktree. A shared bundle
+does not need a Git repository; its manifest/hashes determine conflicts. If the source is not on its
 configured default branch, report the branch and ask whether that branch is
 intentionally the update source. Do not switch branches automatically.
 
@@ -141,17 +153,19 @@ update strategy.
 Review the selected checkout's installer and entrypoint, then run:
 
 ```bash
-bash "<kit-path>/install.sh" --target "<project-root>" --dry-run --no-install
+bash "<kit-path>/install.sh" --target "<project-root>" --update --dry-run
+# Shared alternative:
+bash "<kit-path>/install.sh" --shared --target "<shared-bundle>" --update --dry-run
 ```
 
 Capture the output and report:
 
 - Source commit being installed.
 - Target root.
-- Files to create, append, or merge, and files already identical.
+- Files to create, replace or delete, and files already identical.
 - Any conflict or path that the installer refuses to overwrite.
-- Whether hook activation, `.venv` verification/creation, or other side
-  effects require an explicit flag/choice.
+- Backup location and manifest status; hooks, environments and configuration
+  remain untouched.
 
 If the installer fails, reports conflicts, or unexpectedly plans a write
 outside the project (except a separately approved hook location), stop. Do
@@ -166,12 +180,13 @@ After approval, apply through the selected checkout's installer. Use only the
 options needed to match the approved plan, for example:
 
 ```bash
-bash "<kit-path>/install.sh" --target "<project-root>" --yes --no-install
+bash "<kit-path>/install.sh" --target "<project-root>" --update --yes
+# Shared alternative:
+bash "<kit-path>/install.sh" --shared --target "<shared-bundle>" --update --yes
 ```
 
-Use `--skip-hooks` or `--skip-venv` only if those options are supported by the
-reviewed installer and the user explicitly chose to skip those actions. Do not
-run `--setup-mcp` during refresh.
+Do not run MCP setup or registration during refresh. Update mode never
+changes environments or active hooks.
 
 If the installer encounters a differing installed file, report the exact
 relative path and stop. Do not overwrite or modify that file. Offer to compare
@@ -179,7 +194,8 @@ the source and project versions for a manual, user-directed merge.
 
 ### 6. Verify and report
 
-Inspect Git status and diff in the target after installation. Confirm only
+Inspect Git status and diff in project targets, or inspect the reported changed
+paths and manifest in shared targets after installation. Confirm only
 approved project-local kit assets changed; report hook or environment changes
 separately. Verify prompt/skill counts against the refreshed source, but do not
 claim Copilot has loaded them.
@@ -189,7 +205,7 @@ Finish with a concise report:
 - Source remote/branch and resulting source commit.
 - Target project path.
 - Created/updated/equal/conflicting asset counts and notable paths.
-- Hook and `.venv` outcome.
+- Backup location, manifest outcome, and confirmation hooks and `.venv` were untouched.
 - Whether Snowflake was untouched (it must remain untouched).
 - Reminder to review and commit the project changes and reload/reopen the
   workspace so Copilot can discover refreshed assets.

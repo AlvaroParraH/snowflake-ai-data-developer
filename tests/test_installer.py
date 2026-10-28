@@ -1,4 +1,5 @@
 from contextlib import ExitStack, redirect_stdout
+import hashlib
 import importlib.util
 import io
 import json
@@ -18,7 +19,8 @@ SCRIPT = ROOT / "scripts/install_kit.py"
 SPEC = importlib.util.spec_from_file_location("install_kit", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 installer = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(installer)
+with patch.object(sys, "path", [str(ROOT / "scripts"), *sys.path]):
+    SPEC.loader.exec_module(installer)
 PIPELINE_LEAVES = (
     "pipelines/ingestion/bronze",
     "pipelines/dbt/models/silver/staging",
@@ -77,6 +79,35 @@ class InstallerTests(unittest.TestCase):
             for file in self.target.rglob("*")
             if file.is_file()
         }
+
+    def test_update_cli_uses_manifest_without_tools_or_environment_changes(self) -> None:
+        result = self.run_installer("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = self.target / ".snowflake-kit-manifest.json"
+        self.assertTrue(manifest.is_file())
+        before = self.snapshot()
+        with patch.dict(self.environment, PATH=""):
+            result = self.run_installer("--update", "--dry-run", "--no-install")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = self.run_installer("--update", "--yes", "--no-install")
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.snapshot(), before)
+        document = self.target / "docs/copilot-setup.md"
+        original = document.read_bytes()
+        document.write_bytes(b"previous release\n")
+        records = json.loads(manifest.read_bytes())
+        records["files"]["docs/copilot-setup.md"] = hashlib.sha256(document.read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(records))
+        with patch.dict(self.environment, PATH=""):
+            result = self.run_installer("--update", "--yes", "--no-install")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(document.read_bytes(), original)
+        backup = next((self.target / ".snowflake-kit-backups").iterdir())
+        self.assertEqual((backup / "docs/copilot-setup.md").read_bytes(), b"previous release\n")
+        self.assertEqual((self.target / ".venv/pyvenv.cfg").read_bytes(), before[".venv/pyvenv.cfg"])
+        result = self.run_installer("--update", "--setup-mcp", "--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot be combined", result.stderr)
 
     def test_fresh_install_links_and_idempotency(self) -> None:
         result = self.run_installer("--yes")

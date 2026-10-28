@@ -6,6 +6,13 @@ local setup; it is not a Snowflake service or account bootstrapper.
 
 ## Shared plugin distribution
 
+An optional `--shared --personal-skills` setup creates user-level skill
+shortcuts to an existing shared bundle for unqualified slash command names.
+It preserves canonical guidance in that bundle and refuses conflicting
+personal skills. Optional explicit User Settings registration disables that
+bundle's plugin entry to avoid duplicate discovery; this also hides its
+plugin-provided agents. Client discovery requires a separate reload/check.
+
 `bash install.sh --shared` delegates to `scripts/install_shared.py`. It builds
 an Agent Plugins 1.0 bundle in a dedicated empty directory (by default
 `~/.snowflake-ai-data-developer`). The bundle contains the canonical assets,
@@ -36,7 +43,10 @@ Without registration the builder does not modify editor settings. It does not in
 or activate hooks. It never writes global always-on
 instructions. Existing project-local installations are preserved; users must
 avoid duplicate activation and review migration separately. Updates use a
-fresh bundle directory, not overwrite or deletion of installed content.
+manifest-checked `--update` mode or a fresh bundle directory. The updater
+replaces/deletes only unchanged tracked assets, backs up originals first,
+and refuses modified or untracked collisions. Legacy untracked bundles
+require a fresh installation and registration switch.
 Local bundle tests establish packaging and script behavior, not discovery in
 a running VS Code harness.
 
@@ -96,6 +106,7 @@ included in the installed project payload.
 | Prompts | `.github/prompts/*.prompt.md` | User-invoked workflows such as audit, readiness, initialization, dbt model generation, kit maintenance, and pipeline planning. |
 | Custom agents | `.github/agents/*.agent.md` | Focused investigation roles with explicit scope, minimal tools, and bounded outputs. |
 | Installer | `install.sh`, `scripts/install_kit.py` | Preview and install project-local assets without replacing differing files. |
+| Update tracking | `scripts/installation_state.py`, `.snowflake-kit-manifest.json` | Track owned asset hashes; preview, back up, and update unchanged assets in either installation mode. |
 | Initializer | `scripts/init_project.py`, `scripts/scaffold_snowflake_project.py` | Separately preview and create the agreed `pipelines/` folders; optionally add a context-aware greenfield starter project and initialize Git with approval. |
 | dbt model generator | `scripts/scaffold_dbt_model.py`, `/snowflake-dbt-model` | Inspect conventions, then preview one model and matching YAML docs in an existing dbt project; no dbt execution or Snowflake connection. |
 | Secret scanner | `.githooks/pre-commit`, `scripts/scan_secrets.py` | Scan staged Git blobs for likely credential patterns without displaying matched values. |

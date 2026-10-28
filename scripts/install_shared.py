@@ -15,6 +15,7 @@ import venv
 
 from install_kit import ROOT, check_destination, invalid_json_constant, json_object, payloads, verify_environment
 from setup_mcp import MCPPlan, add_mcp_arguments, check_config_path, plan_mcp
+from installation_state import prepare_manifest, save_manifest, update as update_installation
 
 
 MANIFEST = {
@@ -100,7 +101,8 @@ def select_vscode_settings(*, dry_run: bool) -> Path:
     return candidates[int(choice) - 1]
 
 
-def plan_registration(path: Path, target: Path, disable: list[str]) -> RegistrationPlan:
+def plan_registration(path: Path, target: Path, disable: list[str], *,
+                      enable: bool = True) -> RegistrationPlan:
     path = path.expanduser()
     if not path.is_absolute():
         raise ValueError("--vscode-settings must be an absolute User Settings file path.")
@@ -117,7 +119,7 @@ def plan_registration(path: Path, target: Path, disable: list[str]) -> Registrat
                          "the file has not been changed.") from error
     if not isinstance(config, dict):
         raise ValueError("User Settings must contain a JSON object.")
-    if config.get("chat.plugins.enabled") is False:
+    if enable and config.get("chat.plugins.enabled") is False:
         raise ValueError("Agent plugins are disabled in User Settings; enable them explicitly first.")
     locations = config.setdefault("chat.pluginLocations", {})
     if not isinstance(locations, dict) or any(
@@ -125,14 +127,127 @@ def plan_registration(path: Path, target: Path, disable: list[str]) -> Registrat
     ):
         raise ValueError("chat.pluginLocations must be an object with boolean values.")
     location = str(target.expanduser().absolute())
+    if not enable and location not in locations:
+        raise ValueError("Selected bundle is not registered in this User Settings file. "
+                         "Disable its plugin manually in the interface used to install it.")
     for old in disable:
         old = str(Path(old).expanduser().absolute())
         if old == location or old not in locations:
             raise ValueError(f"Cannot disable missing or selected plugin location: {old}")
         locations[old] = False
-    locations[location] = True
+    locations[location] = enable
     content = before if json.loads(before) == config else (json.dumps(config, indent=2) + "\n").encode()
     return RegistrationPlan(path, before, content, locations)
+
+
+def install_personal_skills(target: Path, directory: Path, *, dry_run: bool, yes: bool,
+                            registration: RegistrationPlan | None = None) -> int:
+    for path in (target, directory):
+        if not path.is_absolute():
+            raise ValueError("Bundle and personal skills paths must be absolute.")
+        check_config_path(path / "path-check")
+    if directory == target or target in directory.parents or directory in target.parents:
+        raise ValueError("Personal skills directory must be separate from the shared bundle.")
+    manifest = target / "plugin.json"
+    check_config_path(manifest)
+    if not manifest.is_file() or json.loads(manifest.read_bytes()).get("name") != MANIFEST["name"]:
+        raise ValueError("Select an existing Snowflake shared bundle with plugin.json.")
+    verify_environment(target)
+    sources = sorted((target / "skills").glob("*/SKILL.md"))
+    if not sources:
+        raise ValueError("Shared bundle contains no skills.")
+    changes: list[tuple[Path, bytes]] = []
+    snapshots: dict[Path, bytes | None] = {}
+    source_snapshots: dict[Path, bytes] = {}
+    for source in sources:
+        check_config_path(source)
+        original = source.read_bytes()
+        source_snapshots[source] = original
+        text = original.decode("utf-8")
+        name = source.parent.name
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+            raise ValueError(f"Invalid skill name: {name}")
+        if not text.startswith(f"---\nname: {name}\n") or len(text.split("---", 2)) != 3:
+            raise ValueError(f"Invalid skill frontmatter: {source}")
+        metadata = text.split("---", 2)[1]
+        content = f"""---{metadata}---
+
+# Personal Snowflake skill: {name}
+
+Read [the shared entry point]({source.as_uri()}) and follow its linked
+canonical guidance and safety instructions before proceeding.
+
+The shared kit root is `{target}`. When the linked entry point refers to
+THIS skill's location, it means the linked file, not this personal shortcut.
+Resolve kit scripts and documentation inside that shared root; the current
+project remains the consumer root. Never copy the kit into the project.
+Use the shared kit's `.venv` interpreter for kit helpers. Loading this skill
+does not authorize connections, installations, account changes or deployment.
+Do not modify editor/plugin caches. If the bundle moves, stop and reconfigure
+this shortcut rather than guessing another kit.
+""".encode()
+        destination = directory / name / "SKILL.md"
+        check_config_path(destination)
+        before = destination.read_bytes() if destination.is_file() else None
+        if destination.exists() and not destination.is_file():
+            raise ValueError(f"Not a regular personal skill file: {destination}")
+        if before is not None and before != content:
+            raise ValueError(f"Existing personal skill differs; preserve/merge manually: {destination}")
+        # A skill folder can contain user assets even if SKILL.md is absent.
+        if before is None and destination.parent.exists() and any(destination.parent.iterdir()):
+            raise ValueError(f"Existing nonempty personal skill directory: {destination.parent}")
+        snapshots[destination] = before
+        if before is None:
+            changes.append((destination, content))
+    print(f"Personal skills: {directory}; shared source: {target}")
+    for destination, _ in changes:
+        print(f"  CREATE {destination}")
+    print(f"{len(sources)} short skill names; {len(changes)} files to create; no guidance copies.")
+    print("Disable the shared plugin to avoid duplicate workflows. Its four custom agents "
+          "will no longer be exposed by that plugin; personal skills do not install agents.")
+    if registration is not None:
+        registration.preview()
+    else:
+        print("Plugin settings unchanged; disable the old plugin in its owning interface manually.")
+    if dry_run:
+        print("Dry run complete; nothing written.")
+        return 0
+    if not yes:
+        if not sys.stdin.isatty():
+            raise ValueError("Non-interactive personal skill setup requires --yes; preview with --dry-run.")
+        if input("Create these personal skills and apply listed settings changes? [y/N] ").strip().lower() not in {"y", "yes"}:
+            print("Cancelled; nothing written.")
+            return 0
+    for source, before in source_snapshots.items():
+        check_config_path(source)
+        if source.read_bytes() != before:
+            raise ValueError(f"Shared skill changed after preview: {source}")
+    for destination, before in snapshots.items():
+        check_config_path(destination)
+        current = destination.read_bytes() if destination.exists() else None
+        if current != before:
+            raise ValueError(f"Personal skill changed after preview: {destination}")
+    if registration is not None:
+        check_config_path(registration.path)
+        if registration.path.read_bytes() != registration.before:
+            raise ValueError("User Settings changed after preview.")
+    written = 0
+    try:
+        for destination, content in changes:
+            check_config_path(destination)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("xb") as stream:
+                stream.write(content)
+            written += 1
+        if registration is not None:
+            registration.apply()
+    except (OSError, ValueError):
+        print(f"Personal skill setup interrupted after {written} files; inspect {directory}. "
+              "Existing skills were not overwritten.", file=sys.stderr)
+        raise
+    print("Personal skill files configured. Reload VS Code or start a new session, then check "
+          "/snowflake-audit. Running-editor discovery is not yet verified.")
+    return 0
 
 
 def activation_steps(target: Path) -> None:
@@ -202,9 +317,12 @@ install dependencies, modify account objects, or deploy.
   the project. Project environment, repository, MCP and pipeline checks still
   inspect the project. A missing project-local kit or `.venv` is not a shared
   plugin failure. Report absent CLI prerequisites without installing them.
-- Kit updates are performed by the plugin manager or by rebuilding the shared
-  bundle into a fresh directory. Do not run the project-local installer as an
-  update, alter a plugin cache, or overwrite existing project customizations.
+- Kit updates use the plugin manager or an approved source checkout's
+  `install.sh --shared --update --target "<registered-source-bundle>"`.
+  Preview with `--dry-run`, then obtain approval before `--yes`. A tracking
+  manifest is required; legacy untracked bundles need a fresh installation.
+  Never target an editor/plugin-manager cache, run the project-local installer
+  as a shared update, or overwrite customizations.
 - MCP configuration, CLI authentication and staged Git hooks remain separate,
   explicit project/user actions. For shared remote MCP setup use
   `scripts/setup_mcp.py` with the kit interpreter and the VS Code user MCP path.
@@ -222,7 +340,7 @@ install dependencies, modify account objects, or deploy.
 
 
 def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = None,
-            registration: RegistrationPlan | None = None) -> int:
+            registration: RegistrationPlan | None = None, update: bool = False) -> int:
     if target.is_symlink():
         raise ValueError(f"Refusing symlink target: {target}")
     target = target.absolute()
@@ -230,12 +348,17 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
     for ancestor in reversed((target, *target.parents)):
         if ancestor.is_symlink():
             raise ValueError(f"Refusing symlink ancestor: {ancestor}")
-    if target == Path.home() or target == Path(target.anchor) or target == ROOT:
+    if target == Path.home() or target == Path(target.anchor) or target == ROOT or ROOT in target.parents:
         raise ValueError("Choose a dedicated shared plugin directory, not home, root, or the kit checkout.")
     if target.exists() and not target.is_dir():
         raise ValueError(f"Not a directory: {target}")
+    if update:
+        if mcp is not None or registration is not None:
+            raise ValueError("--update cannot change MCP or User Settings; configure them separately.")
+        return update_installation(target, shared_payloads(), "shared", dry_run=dry_run, yes=yes)
     if target.is_dir() and any(target.iterdir()):
-        raise ValueError("Shared plugin target must be empty; choose a fresh directory for updates.")
+        raise ValueError("Shared plugin target must be empty; use --update for tracked installations "
+                         "or choose a fresh directory for an untracked legacy copy.")
     if mcp is not None and (mcp.path == target or target in mcp.path.parents):
         raise ValueError("User MCP configuration must be outside the shared plugin directory.")
     if registration is not None:
@@ -244,6 +367,7 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
         if mcp is not None and registration.path == mcp.path:
             raise ValueError("User Settings and MCP configuration must be different files.")
     files = shared_payloads()
+    tracking = prepare_manifest(target, files, "shared")
     for relative in files:
         check_destination(target, relative)
     print(f"Shared plugin: {target}")
@@ -285,6 +409,7 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
             mcp.apply()
         if registration is not None:
             registration.apply()
+        save_manifest(target, tracking)
     except (OSError, ValueError, subprocess.SubprocessError):
         print(f"Installation interrupted after {written} files; inspect {target} before retrying.",
               file=sys.stderr)
@@ -298,7 +423,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", type=Path, default=Path.home() / ".snowflake-ai-data-developer")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--update", action="store_true",
+                        help="Back up and update unchanged manifest-owned kit assets only")
     parser.add_argument("--yes", action="store_true")
+    parser.add_argument("--personal-skills", action="store_true",
+                        help="Create short user-level skill entry points to an existing shared bundle")
+    parser.add_argument("--skills-dir", type=Path,
+                        help="Personal skills directory (default: ~/.copilot/skills); requires --personal-skills")
     parser.add_argument("--register-vscode", action="store_true",
                         help="Offer User Settings registration with preview and installation approval")
     parser.add_argument("--vscode-settings", type=Path,
@@ -308,6 +439,31 @@ def main() -> int:
     add_mcp_arguments(parser)
     args = parser.parse_args()
     try:
+        if args.skills_dir is not None and not args.personal_skills:
+            raise ValueError("--skills-dir requires --personal-skills.")
+        if args.personal_skills:
+            if (args.update or args.setup_mcp or args.mcp_endpoint or args.mcp_auth
+                    or args.mcp_approved or args.mcp_oauth_client_id or args.mcp_config
+                    or args.mcp_tool or args.mcp_format != "vscode"):
+                raise ValueError("--personal-skills is separate from bundle updates and MCP setup.")
+            if args.register_vscode and args.vscode_settings is None:
+                args.vscode_settings = select_vscode_settings(dry_run=args.dry_run)
+            if args.disable_plugin and args.vscode_settings is None:
+                raise ValueError("--disable-plugin requires explicit VS Code registration settings.")
+            target = args.target.expanduser()
+            registration = (plan_registration(args.vscode_settings, target,
+                                             args.disable_plugin, enable=False)
+                            if args.vscode_settings is not None else None)
+            directory = (args.skills_dir or Path.home() / ".copilot/skills").expanduser()
+            return install_personal_skills(target, directory, dry_run=args.dry_run,
+                                           yes=args.yes, registration=registration)
+        if args.update:
+            if (args.register_vscode or args.vscode_settings or args.disable_plugin
+                    or args.setup_mcp or args.mcp_endpoint or args.mcp_auth
+                    or args.mcp_approved or args.mcp_oauth_client_id or args.mcp_config
+                    or args.mcp_tool or args.mcp_format != "vscode"):
+                raise ValueError("--update cannot change MCP or User Settings; configure them separately.")
+            return install(args.target.expanduser(), dry_run=args.dry_run, yes=args.yes, update=True)
         mcp = plan_mcp(args)
         if args.disable_plugin and not (args.register_vscode or args.vscode_settings):
             raise ValueError("--disable-plugin requires VS Code registration.")

@@ -1,5 +1,6 @@
 from contextlib import redirect_stderr, redirect_stdout
 import ast
+import hashlib
 import importlib.util
 import io
 import json
@@ -101,6 +102,107 @@ class SharedInstallationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(list(self.target.iterdir()), [existing])
         self.assertEqual(existing.read_text(), "preserve")
+
+    def test_personal_shortcuts_preview_apply_and_repeat(self) -> None:
+        self.assertEqual(self.run_install("--yes").returncode, 0)
+        directory = self.target.parent / "personal skills"
+        settings = self.target.parent / "settings.json"
+        settings.write_text(json.dumps({
+            "editor.fontSize": 14,
+            "chat.pluginLocations": {str(self.target): True, "/other/plugin": True},
+        }))
+        before = settings.read_bytes()
+        flags = ("--personal-skills", "--skills-dir", str(directory),
+                 "--vscode-settings", str(settings))
+        result = self.run_install(*flags, "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(directory.exists())
+        self.assertEqual(settings.read_bytes(), before)
+        result = self.run_install(*flags, "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(list(directory.glob("*/SKILL.md"))), 26)
+        audit = (directory / "snowflake-audit/SKILL.md").read_text()
+        self.assertIn("\nname: snowflake-audit\n", audit)
+        self.assertIn((self.target / "skills/snowflake-audit/SKILL.md").as_uri(), audit)
+        self.assertIn(f"The shared kit root is `{self.target}`", audit)
+        config = json.loads(settings.read_bytes())
+        self.assertIs(config["chat.pluginLocations"][str(self.target)], False)
+        self.assertIs(config["chat.pluginLocations"]["/other/plugin"], True)
+        self.assertEqual(config["editor.fontSize"], 14)
+        snapshot = {p: p.read_bytes() for p in directory.glob("*/SKILL.md")}
+        result = self.run_install(*flags, "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(snapshot, {p: p.read_bytes() for p in directory.glob("*/SKILL.md")})
+
+    def test_personal_collision_aborts_before_any_writes(self) -> None:
+        self.assertEqual(self.run_install("--yes").returncode, 0)
+        directory = self.target.parent / "personal"
+        collision = directory / "snowflake-audit/SKILL.md"
+        collision.parent.mkdir(parents=True)
+        collision.write_text("personal customizations")
+        result = self.run_install("--personal-skills", "--skills-dir", str(directory), "--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Existing personal skill differs", result.stderr)
+        self.assertEqual(list(directory.glob("*/SKILL.md")), [collision])
+        self.assertEqual(collision.read_text(), "personal customizations")
+
+    def test_personal_symlink_and_incompatible_options_are_rejected(self) -> None:
+        self.assertEqual(self.run_install("--yes").returncode, 0)
+        external = self.target.parent / "external"
+        external.mkdir()
+        directory = self.target.parent / "personal"
+        directory.symlink_to(external, target_is_directory=True)
+        result = self.run_install("--personal-skills", "--skills-dir", str(directory), "--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr)
+        self.assertEqual(list(external.iterdir()), [])
+        for flags in (("--update",), ("--setup-mcp",)):
+            result = self.run_install("--personal-skills", *flags, "--dry-run")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("separate from", result.stderr)
+        result = self.run_install("--skills-dir", str(external), "--dry-run")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires --personal-skills", result.stderr)
+
+    def test_personal_setup_without_confirmation_writes_nothing(self) -> None:
+        self.assertEqual(self.run_install("--yes").returncode, 0)
+        directory = self.target.parent / "personal"
+        result = self.run_install("--personal-skills", "--skills-dir", str(directory))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires --yes", result.stderr)
+        self.assertFalse(directory.exists())
+
+    def test_update_cli_preserves_environment_and_rejects_configuration_changes(self) -> None:
+        result = self.run_install("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.target / ".snowflake-kit-manifest.json").is_file())
+        before = {p.relative_to(self.target): p.read_bytes()
+                  for p in self.target.rglob("*") if p.is_file()}
+        result = self.run_install("--update", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Already up to date", result.stdout)
+        self.assertEqual(before, {p.relative_to(self.target): p.read_bytes()
+                                  for p in self.target.rglob("*") if p.is_file()})
+        document = self.target / "docs/copilot-setup.md"
+        original = document.read_bytes()
+        document.write_bytes(b"previous release\n")
+        manifest = self.target / ".snowflake-kit-manifest.json"
+        records = json.loads(manifest.read_bytes())
+        records["files"]["docs/copilot-setup.md"] = hashlib.sha256(document.read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(records))
+        result = self.run_install("--update", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(document.read_bytes(), b"previous release\n")
+        result = self.run_install("--update", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(document.read_bytes(), original)
+        self.assertEqual((self.target / ".venv/pyvenv.cfg").read_bytes(),
+                         before[Path(".venv/pyvenv.cfg")])
+        for flags in (("--register-vscode",), ("--setup-mcp",),
+                      ("--mcp-config", str(self.target.parent / "mcp.json"))):
+            result = self.run_install("--update", "--dry-run", *flags)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("cannot change MCP or User Settings", result.stderr)
 
     def test_registration_preview_and_approval_preserve_settings(self) -> None:
         settings = self.target.parent / "settings.json"

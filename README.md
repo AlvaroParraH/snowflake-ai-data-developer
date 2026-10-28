@@ -145,8 +145,61 @@ Existing project-local installations are not removed automatically. Avoid
 enabling both copies in the same workspace; disable the shared plugin there
 until you explicitly review removal of project-local kit assets. Never remove
 customized files or project profiles as an automatic migration. For updates,
-build into a fresh shared directory, validate it, and switch the user setting;
-the shared installer refuses nonempty destinations and does not overwrite.
+use the tracked `--update` mode below, or build into a fresh shared directory
+and switch the user setting. A normal shared installation still refuses a
+nonempty destination.
+
+### Updating an installed kit
+
+For short commands such as `/snowflake-audit` across projects, see
+[personal skill shortcuts](docs/copilot-setup.md#short-command-names-with-personal-skills).
+Plugin commands can be namespaced by the active client as
+`/snowflake-data-developer:snowflake-audit`; examples using short names below
+apply to personal skills or project-local prompts.
+
+Run these commands from your trusted, updated source checkout, not a VS Code
+plugin cache. Use the existing installation's exact path:
+
+```bash
+# Shared plugin: preview, then apply the same reviewed plan
+bash install.sh --shared --target "$HOME/.snowflake-ai-data-developer" --update --dry-run
+bash install.sh --shared --target "$HOME/.snowflake-ai-data-developer" --update --yes
+
+# Project-local installation
+bash install.sh --target /path/to/your-project --update --dry-run
+bash install.sh --target /path/to/your-project --update --yes
+```
+
+Omit `--yes` for interactive confirmation. `/snowflake-kit-update` can also
+guide this process. No Git fetch/pull is performed by the installer itself.
+
+New installations record `.snowflake-kit-manifest.json` with kit-owned file
+hashes. Update mode replaces unchanged owned files, adds new assets, and
+deletes obsolete owned files only if they still match their recorded hashes.
+Locally modified assets and conflicting untracked files abort the plan before
+writes. Project instruction text outside the managed Snowflake block is
+preserved. Never edit the manifest to bypass a conflict.
+
+Before applying, the updater saves changed originals and the old manifest
+under `.snowflake-kit-backups/<unique-update-id>/`. Keep the manifest for
+future updates and retain backups until you have verified the result.
+Keep local backups out of version control using your project's ignore policy.
+Interrupted updates report the backup path and require inspection; there is
+no automatic rollback or backup deletion. Only individual obsolete files are
+deleted, not directories.
+
+Updates leave credentials, MCP configuration, VS Code settings, `.venv`,
+active Git hooks, and project code untouched. They install no tools and make
+no Snowflake connections. Reload VS Code after a shared update; editor
+discovery is a separate verification step.
+
+**Older installations without a manifest:** automatic replacement is refused.
+For a shared installation, build once into a fresh directory, validate it,
+switch registration, and disable the old copy; do not delete it automatically.
+For a project-local installation, review/merge the old assets first, then
+rerun the normal installer when they match the current kit to establish
+tracking. If anything differs, the normal installer still refuses to overwrite
+it. Future updates can then use `--update`.
 
 See the [VS Code plugin documentation](https://code.visualstudio.com/docs/agent-customization/agent-plugins)
 and [format reference](https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference).

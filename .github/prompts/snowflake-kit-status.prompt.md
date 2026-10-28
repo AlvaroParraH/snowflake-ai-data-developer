@@ -78,7 +78,11 @@ presence/counts without dumping content:
 - `scripts/install_kit.py`, `scripts/init_project.py`,
   `scripts/scaffold_snowflake_project.py`,
   `scripts/scaffold_dbt_model.py`,
+  `scripts/installation_state.py`,
   `scripts/scan_secrets.py`, `.githooks/pre-commit`, and setup documentation.
+- `.snowflake-kit-manifest.json` for tracked updates. An older installation
+  without it needs the documented migration before `--update`; report a
+  warning, not permission to manufacture tracking records or delete assets.
 - Optional `.venv` health: recognizable `pyvenv.cfg` and working interpreter.
   If absent, report that the environment is optional/skipped; do not create it.
 
