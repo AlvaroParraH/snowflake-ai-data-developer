@@ -41,6 +41,62 @@ No global always-on instruction, authentication, MCP server, or hook is
 installed or activated. Loading a workflow is not authorization for account
 access.
 
+### Removing an installation
+
+There is no uninstall command. Remove files manually so local edits, unrelated
+settings, and project content are preserved. Back up or commit any changes
+before cleanup.
+
+**Shared plugin**
+
+1. In VS Code User Settings, remove only this bundle's path from
+   `chat.pluginLocations`, or disable the plugin using the interface where it
+   was registered. Preserve other plugin entries, then reload VS Code or start
+   a new chat.
+2. If you created personal skill shortcuts, remove only the shortcuts that
+   point to this bundle from the configured skills directory (by default
+   `~/.copilot/skills/`). Preserve other or customized skills.
+3. If you configured the optional user-level MCP server, remove only the
+   Snowflake server entry added to that MCP configuration. Preserve other
+   servers and settings.
+4. After saving any custom files from the bundle, remove the shared target
+   directory you installed (the default is
+   `~/.snowflake-ai-data-developer`). Do not remove VS Code's plugin cache as
+   a substitute.
+
+If installation used `--disable-plugin`, restore any old plugin entry only if
+you want that plugin enabled again. The installer does not track or reverse
+that separate settings change.
+
+**Project-local installation**
+
+1. Review the project's `.snowflake-kit-manifest.json` and current changes.
+   The manifest lists kit-owned files and their recorded hashes. Remove only
+   assets that still match those recorded contents; manually merge or preserve
+   modified assets and untracked files. In `.github/copilot-instructions.md`,
+   remove only the marked Snowflake block, keeping all surrounding project
+   instructions.
+2. If configured, remove only the kit's Snowflake server entry from
+   `.vscode/mcp.json`. Do not delete the file if it contains other servers or
+   project settings.
+3. The installer may have enabled the kit's `pre-commit` launcher in the
+   repository's active hooks directory, which can differ from `.githooks/`.
+   Inspect `core.hooksPath` or use `git rev-parse --git-path hooks` to find
+   that directory. Remove the active `pre-commit` file only if it is still the
+   kit launcher; if it contains other hook logic, remove the scanner integration
+   manually and preserve the rest. Do not change `core.hooksPath` or remove
+   other hooks.
+4. Remove `.snowflake-kit-manifest.json` after cleanup. Keep
+   `.snowflake-kit-backups/` until you have confirmed you no longer need its
+   saved originals. Remove empty kit directories only after checking that they
+   contain no project files.
+5. Remove `.venv/` only if it was created for this installation and is not used
+   by the project. The installer leaves an existing environment intact.
+
+The project installer may also have installed `uv` or the Snowflake CLI if
+they were missing. Removing kit files does not uninstall these shared tools;
+remove them separately only if no other project or workflow uses them.
+
 ### Optional user-level remote MCP registration
 
 The shared installer accepts `--setup-mcp`, or run `scripts/setup_mcp.py` from

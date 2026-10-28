@@ -464,9 +464,11 @@ manual pre-commit SQLFluff checks using existing project tooling. The SQL
 check does not install dependencies, connect to Snowflake or enforce a Git hook.
 
 See [Copilot setup](docs/copilot-setup.md) for project-local adoption, discovery
-checks, and optional Snowflake MCP configuration guidance. No global installer,
-MCP connection, credentials, or automatic database access is included. Copilot
-instructions and MCP configuration are not Codex configuration.
+checks, optional Snowflake MCP configuration, and
+[uninstall steps](docs/copilot-setup.md#removing-an-installation). No global
+installer, MCP connection, credentials, or automatic database access is
+included. Copilot instructions and MCP configuration are not Codex
+configuration.
 
 For contributors maintaining this repository, see
 [AGENTS.md](AGENTS.md) for coding-agent guidance and
