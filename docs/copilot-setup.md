@@ -6,12 +6,26 @@ skills with their full guidance. It does not install or configure Codex.
 
 ## Shared plugin installation
 
+Running `bash install.sh` without arguments is equivalent to
+`bash install.sh --shared --yes --personal-skills`: it creates personal skill
+shortcuts to an existing `~/.snowflake-ai-data-developer` bundle without asking
+for confirmation. It fails if the bundle is missing and does not create or
+update it. This exposes skills, not plugin custom agents; editor settings are
+unchanged, so disable any active plugin copy separately to avoid duplicates.
+Explicit arguments retain their existing behavior. Create the bundle with the
+explicit commands below before using this default.
+
 For cross-project use without copying kit assets into each project, run
 `bash install.sh --shared --dry-run`, then `bash install.sh --shared --yes`.
 The shared directory defaults to `~/.snowflake-ai-data-developer`; the
-installer refuses nonempty targets. Editor settings remain unchanged unless
-registration is explicitly requested with `--register-vscode` or
-`--vscode-settings /absolute/path/to/User/settings.json`. The file must be
+installer refuses nonempty targets. Interactive fresh installations offer
+**Enable this kit in VS Code?** before the installation preview, even with
+`--yes`. Accepting previews registration in `chat.pluginLocations`; declining
+(the default) leaves editor settings unchanged. Dry runs, unattended installs,
+bundle updates and personal-skill setup do not show this offer.
+Registration can also be explicitly requested with `--register-vscode` or
+`--vscode-settings /absolute/path/to/User/settings.json`, including for
+unattended installs. The file must be
 the intended User Settings file. Without an explicit path, the installer
 discovers saved settings in standard stable/Insiders directories, including
 named profiles. It previews a single candidate or asks for a numbered choice
@@ -24,11 +38,45 @@ of the installation plan. Use `--disable-plugin` for each explicit old entry
 to disable. JSONC files require manual merging; automatic registration refuses
 them without changes. Completion prints registration, reload and verification
 steps even when automatic registration is not selected.
-After approval it creates a kit-local `.venv/` using existing Python and
-bundled pip, with no downloads or third-party dependencies. Shared Python
-helpers use that environment; `/snowflake-init` does not create a project
-environment. Create project environments separately when needed. Install
+The Bash entrypoint checks a usable `PYTHON` executable, versioned Python
+commands from 3.15 down to 3.10, then `python3`, requiring version 3.10+.
+If none qualifies, it shows the package command and prompts before installing;
+`--yes` approves this too (including the no-argument default). macOS uses
+`brew install python@3.11` with existing Homebrew. Linux uses apt-get
+(`python3 python3-venv python3-pip`), dnf (`python3 python3-pip`), or pacman
+(`python python-pip`), using sudo unless already root. It never installs
+Homebrew or sudo. Unsupported systems require a manual Python installation.
+Fedora Atomic/OSTree hosts are detected using `/run/ostree-booted` before
+selecting a Linux package manager. If Python is missing, the installer stops
+even with `--yes` and prints manual `rpm-ostree install python3 python3-pip`
+and reboot steps. If Distrobox is available, it also suggests installing in an
+existing Fedora box and rerunning there. It never runs those commands or
+reboots automatically. An already usable Python bypasses this bootstrap check.
+Failed installation or failed version re-detection stops before running helpers.
+`--no-install`, `--dry-run`, help, and updates prohibit Python installation.
+If no usable interpreter exists, these commands stop with prerequisite guidance;
+they cannot run the Python-based preview/help until Python is installed.
+Direct Python helper invocation requires an already installed Python 3.10+.
+After approval it creates a kit-local `.venv/` using the selected Python and
+bundled pip, with no downloads or third-party dependencies. Fresh shared
+installations also audit Snowflake CLI (`snow`): a found CLI is verified with
+`snow --version`; a missing CLI is offered through Snowflake's official
+installer as part of the approved plan. `--no-install` disables that
+automatic installation, and the bundle itself works without the CLI. Shared Python
+helpers use that environment; `/snowflake-init` separately offers an opt-in
+project `.venv` using uv after successful initialization. It preserves existing
+environments and requires available uv, a compatible local Python, and approval
+of the exact command. It does not install dependencies or activate the user's
+shell. The initializer script alone does not create environments. Install
 at the final path, since virtual environments cannot be safely relocated.
+Generated skills embed that final absolute path as their stable runtime root.
+Editor/plugin-manager caches may contain readable guidance without a working
+Python environment; workflows must use the original bundle's interpreter and
+helpers, not executables in the cache. If that original runtime is unavailable,
+stop rather than trying another interpreter or changing the cache.
+To migrate older cache-relative skills, preview and approve a shared update
+against the original bundle as described below, then reload VS Code. No
+environment rebuild is needed if the original bundle's environment is healthy.
 Register the resulting plugin in VS Code User settings using
 `chat.pluginLocations` and confirm discovery in your selected harness.
 See the [shared installation guide](https://github.com/AlvaroParraH/snowflake-ai-data-developer#shared-installation-for-vs-code-copilot)
@@ -208,13 +256,19 @@ Views and Cortex Analyst, and deployment/promotion.
 Maintain discovery metadata and full guidance together in each skill file;
 there is no separate root-level skill copy.
 
-### Select a user-level Snowflake CLI connection for a project
+### Set up a project's Snowflake CLI connection
 
-Run `/snowflake-connection-setup` to associate a project with an existing
-named Snowflake CLI connection. The profile and authentication remain in the
-user's Snowflake CLI configuration. If needed, create a profile interactively
-in the user's own terminal with `snow connection add`; never put credentials
-in chat or project files.
+Run `/snowflake-connection-setup` for an end-to-end wizard. It lists
+conflicting global `SNOWFLAKE_*` environment overrides (names only) and
+offers to comment them out of shell startup files with backups, checks or
+offers to install Snowflake CLI with explicit consent, creates or reuses a
+named connection per project target (suggested `<project>-<target>`), and
+validates it with an approved `snow connection test`. Browser SSO requires
+no secret; for token authentication the wizard offers the transcript-free
+path first (the user runs `snow connection add` in their own terminal). A
+token pasted in chat is written only to the user-level `connections.toml`,
+is never re-printed, and still remains in the chat transcript — prefer the
+terminal path. Credentials never enter project files.
 
 Automatic project selection uses Snowflake CLI's
 `SNOWFLAKE_DEFAULT_CONNECTION_NAME` environment variable in a project `.envrc`.
@@ -301,7 +355,8 @@ including installing missing tools. No target is selected implicitly.
 
 Git is checked on PATH and verified using `git --version`. Python is the
 interpreter running the installer, with a 3.10+ version check; the Bash entrypoint
-checks for Python before launching it. Git and Python are never auto-installed.
+checks for Python before launching it and offers installation as described above.
+Git is never auto-installed.
 Snowflake CLI is checked on PATH and verified using `snow --version`. If it is
 missing on macOS/Linux, approval runs Snowflake's official signed-binary
 installer non-interactively, with shell-profile edits disabled. It installs
@@ -324,9 +379,9 @@ does not require a `code` CLI or sign into your account.
   file, then runs it with sh, installing to `~/.local/bin` using
   `UV_INSTALL_DIR` and `UV_NO_MODIFY_PATH=1`. It does not edit shell profiles;
   add `~/.local/bin` to PATH for future shells if needed.
-- Python, Homebrew, curl, and sh are not installed automatically. Unsupported
+- Homebrew, curl, and sh are not installed automatically. Unsupported
   platforms or missing installation tools produce manual-install guidance.
-- `--no-install` prohibits uv and Snowflake CLI installation. If either is
+- `--no-install` prohibits Python, uv and Snowflake CLI installation. If either CLI is
   missing, an actual run fails before project writes.
 - `--dry-run` reports status without executing uv, the Snowflake CLI installer,
   or any installation commands, downloading anything, or writing files.
@@ -460,10 +515,24 @@ No SQL linting is included in this hook; use `/snowflake-sql-check` separately.
 
 ##### Initialize project folders or a project starter scaffold
 
-The installer adds `/snowflake-init`, `scripts/init_project.py`, and
+After successful folder or starter initialization, `/snowflake-init` asks
+whether to **Create with uv** or **Skip** (default) a project-local `.venv`.
+This also applies to approved brownfield folder additions, but not read-only
+reviews, cancellations, or dry runs. Existing environments are never replaced.
+Creation uses `uv venv --no-config --offline --no-python-downloads` with an
+explicit compatible local interpreter and project destination after preview
+and approval. Missing uv or Python is reported without automatic installation.
+No project packages, manifests, or lockfiles are added. The workflow verifies
+the new interpreter and provides a terminal activation command; it does not
+activate your shell. This offer is part of the chat workflow, not a new
+`scripts/init_project.py` option.
+
+The shared plugin adds the `snowflake-init` workflow (often invoked as
+`/snowflake-data-developer:snowflake-init`; some clients expose `/snowflake-init`),
+`scripts/init_project.py`, and
 `scripts/scaffold_snowflake_project.py`; it does not create project files by default. After
-adopting the kit, invoke `/snowflake-init` in Copilot Chat or run the script
-from the target project's root:
+adopting the kit, invoke the command name shown by your client in Copilot Chat,
+or run the script from the target project's root:
 
 ```bash
 python3 scripts/init_project.py --target /path/to/existing-project --dry-run

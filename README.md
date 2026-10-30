@@ -64,6 +64,14 @@ its skills.
 
 To keep the kit outside your projects, build a shared agent plugin:
 
+Running `bash install.sh` without arguments is equivalent to
+`bash install.sh --shared --yes --personal-skills`: it creates personal skill
+shortcuts to the existing default shared bundle without asking for confirmation.
+It fails if that bundle is missing; it does not create or update it. This mode
+exposes skills, not plugin custom agents, and leaves editor settings unchanged.
+Disable any active copy of the plugin separately to avoid duplicate discovery.
+Explicit arguments retain their existing behavior. To create the bundle first:
+
 ```bash
 bash install.sh --shared --dry-run
 bash install.sh --shared --yes
@@ -71,26 +79,63 @@ bash install.sh --shared --yes
 
 The default destination is `~/.snowflake-ai-data-developer`. Use
 `--target /absolute/path/to/shared-kit` to choose another empty directory.
-The shared installer needs an existing Python 3.10+ with `venv`/`ensurepip`
-support. After approval, it creates the kit's own `.venv/` inside the shared
+The shared installer needs Python 3.10+ with `venv`/`ensurepip` support.
+The Bash entrypoint honors a usable `PYTHON` executable, then checks versioned
+Python commands (3.15 down to 3.10) and `python3`. If none qualifies, it offers
+`brew install python@3.11` on macOS (existing Homebrew required) or Python
+packages through apt-get, dnf, or pacman on Linux (sudo unless running as root).
+On Fedora Atomic/OSTree hosts (detected by `/run/ostree-booted`), missing
+Python is never installed automatically, even with `--yes`. The installer
+prints manual `rpm-ostree` installation and reboot steps, plus a Fedora
+Distrobox option if Distrobox is available, then stops. Existing usable
+Python still works normally.
+`--yes` approves this installation, including the no-argument default.
+`--no-install`, `--dry-run`, help, and updates never bootstrap Python.
+Without usable Python these modes stop with guidance instead of running the
+Python helper; unsupported platforms require manual installation.
+Package-manager failure or failed Python re-detection stops installation.
+After approval, it creates the kit's own `.venv/` inside the shared
 directory, using that interpreter and bundled pip without network downloads.
-No third-party packages, CLIs, credentials, local MCP servers or Git hooks
-are installed. Editor settings change only with optional approved registration.
+Shared environment creation installs no third-party packages,
+credentials, local MCP servers or Git hooks. Fresh shared installations also
+audit Snowflake CLI (`snow`) on PATH: a found CLI is verified with
+`snow --version`; a missing CLI on macOS/Linux is offered through Snowflake's
+official signed-binary installer (under `~/.local/share/snowflake-cli` or
+`$XDG_DATA_HOME/snowflake-cli`, without editing shell profiles) as part of the
+approved plan. A missing CLI never blocks the bundle; `--no-install` disables
+this automatic installation and dry runs only report it. Interactive fresh installations offer **Enable this kit in
+VS Code?** before the installation preview, including when using `--yes`.
+Accepting adds a previewed `chat.pluginLocations` update; declining (the
+default) leaves editor settings unchanged. Dry runs, unattended installs,
+bundle updates and personal-skill setup do not show this offer. For unattended
+registration, explicitly pass `--register-vscode` or `--vscode-settings`.
 Optional approved remote MCP registration is described
 below. Shared workflows use this kit interpreter; project
 dependencies belong in a separate project environment. `/snowflake-init`
-does not automatically create a project `.venv`.
+asks whether to create a project-local `.venv` using uv after initialization.
+Skipping leaves Python setup unchanged; existing environments are preserved.
+Creation requires available uv, a compatible local Python, and command approval;
+it installs no dependencies. Activate it separately in your terminal.
 
 The default kit interpreter is `~/.snowflake-ai-data-developer/.venv/bin/python`
 on macOS/Linux (`.venv/Scripts/python.exe` on Windows). Virtual environments
 are not relocatable: rebuild the bundle at its final path if moving it.
+Generated skill entry points record that final absolute installation path.
+VS Code may cache the plugin's guidance files, but workflows execute both
+Python and helpers from the original shared bundle, never the cache.
+Keep that bundle available. A missing or broken original runtime stops the
+workflow; it does not fall back to another Python or repair the cache.
+For older entry points that require a cache-local interpreter, preview and
+apply the [shared update](#updating-an-installed-kit) to the original bundle, then
+reload VS Code so it loads the regenerated skills.
 If environment creation fails, the installer reports failure and leaves the
 partial directory for inspection; it does not overwrite it on retry.
 
 Register the resulting folder in **VS Code User settings**, not workspace
 settings (replace the example with your absolute path):
 
-The installer can register it automatically with preview and approval:
+The installer can register it through the interactive offer or explicitly with
+preview and approval:
 
 ```bash
 bash install.sh --shared --target "$HOME/.snowflake-ai-data-developer-v2" \
@@ -129,8 +174,10 @@ Merge this entry with existing settings; do not replace the settings file.
 Agent plugins must be enabled and permitted by your organization's policy.
 `chat.pluginLocations` is experimental and requires a supporting VS Code
 version. Check **Chat: Open Customizations** for the plugin and verify
-`/snowflake-init` and `/snowflake-dbt-model` are available in your chosen
-harness. Discovery in a running editor is a separate check from building
+`/snowflake-data-developer:snowflake-init` and
+`/snowflake-data-developer:snowflake-dbt-model` are available in your chosen
+harness. Some clients expose unqualified names; use the plugin-prefixed names
+if shown. Discovery in a running editor is a separate check from building
 the package.
 
 The bundle exposes fifteen guidance skills, eleven workflow skills (the same
@@ -280,10 +327,12 @@ official signed-binary installer. It installs under
 editing shell profiles; add its `bin/` directory to PATH for future shells if
 needed. Windows and unsupported systems need a manual install using the
 [official instructions](https://docs.snowflake.com/en/developer-guide/snowflake-cli/installation/installation).
-Git, Python, Homebrew (on macOS, only for installing uv), and curl/sh (for
-installing Snowflake CLI) must already be installed.
+Git, Homebrew (on macOS, for installing Python or uv), and curl/sh (for
+installing Snowflake CLI) must already be installed. The Bash entrypoint can
+install missing Python with approval as described above; invoking a Python
+helper directly requires an existing Python 3.10+.
 
-Use `--no-install` to prohibit automatic tool installation; missing uv or
+Use `--no-install` to prohibit automatic tool installation, including Python; missing uv or
 Snowflake CLI then stops an actual run before project writes. A dry run only
 reports prerequisites and planned changes: it downloads, executes and installs
 nothing.
@@ -499,7 +548,9 @@ repository audit and optional approved, bounded account metadata review,
 [`/snowflake-check`](.github/prompts/snowflake-check.prompt.md) for local
 prerequisite checks and an approved Snowflake CLI connection test,
 [`/snowflake-connection-setup`](.github/prompts/snowflake-connection-setup.prompt.md)
-for selecting a user-level Snowflake CLI connection per project,
+for an end-to-end wizard that cleans conflicting environment overrides,
+creates or reuses a user-level Snowflake CLI connection per project target,
+validates it, and wires the project selection,
 [`/snowflake-dbt-model`](.github/prompts/snowflake-dbt-model.prompt.md) for
 reviewed generation of one dbt model and matching YAML documentation,
 [`/snowflake-init`](.github/prompts/snowflake-init.prompt.md) for explicitly

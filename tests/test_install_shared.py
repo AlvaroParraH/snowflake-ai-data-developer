@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,17 @@ class SharedInstallationTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="snowflake-shared-test-")
         self.addCleanup(temporary.cleanup)
         self.target = Path(temporary.name).resolve() / "shared kit"
+        self.bin = Path(temporary.name).resolve() / "bin"
+        self.bin.mkdir()
+        snow = self.bin / "snow"
+        snow.write_text(f"#!{sys.executable}\nimport sys\n"
+                        "if sys.argv[1:] == ['--version']: print('Snowflake CLI 3.0-test')\n"
+                        "else: raise SystemExit(2)\n")
+        snow.chmod(0o755)
+        path = patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep
+                                       + os.environ.get("PATH", "")})
+        path.start()
+        self.addCleanup(path.stop)
 
     def run_install(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -38,6 +50,59 @@ class SharedInstallationTests(unittest.TestCase):
 
     def kit_python(self) -> Path:
         return self.target / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+    def test_shell_entrypoint_default_requires_existing_shared_bundle(self) -> None:
+        home = self.target.parent / "home"
+        home.mkdir()
+        environment = {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
+        results = [
+            subprocess.run(
+                ["bash", str(ROOT / "install.sh"), *args],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL, env=environment,
+            )
+            for args in ((), ("--shared", "--yes", "--personal-skills"))
+        ]
+        for result in results:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Select an existing Snowflake shared bundle", result.stderr)
+        self.assertEqual(results[0].stdout, results[1].stdout)
+        self.assertEqual(results[0].stderr, results[1].stderr)
+        self.assertEqual(list(home.iterdir()), [])
+
+    def test_shell_entrypoint_default_installs_personal_skills_without_confirmation(self) -> None:
+        home = self.target.parent / "home"
+        home.mkdir()
+        environment = {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
+        bundle = home / ".snowflake-ai-data-developer"
+        result = self.run_install("--target", str(bundle), "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        before = {path.relative_to(bundle): path.read_bytes()
+                  for path in bundle.rglob("*") if path.is_file()}
+        for args in ((), ("--shared", "--yes", "--personal-skills")):
+            result = subprocess.run(
+                ["bash", str(ROOT / "install.sh"), *args],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL, env=environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        shortcuts = list((home / ".copilot/skills").glob("*/SKILL.md"))
+        self.assertEqual(len(shortcuts), 26)
+        self.assertIn((bundle / "skills/snowflake-init/SKILL.md").as_uri(),
+                      (home / ".copilot/skills/snowflake-init/SKILL.md").read_text())
+        self.assertEqual(before, {path.relative_to(bundle): path.read_bytes()
+                                  for path in bundle.rglob("*") if path.is_file()})
+        self.assertEqual({path.name for path in home.iterdir()},
+                         {".snowflake-ai-data-developer", ".copilot"})
+
+    def test_shell_entrypoint_preserves_explicit_shared_options(self) -> None:
+        result = subprocess.run(
+            ["bash", str(ROOT / "install.sh"), "--shared",
+             "--target", str(self.target), "--dry-run"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Shared plugin: {self.target}", result.stdout)
+        self.assertIn("Dry run complete; nothing written.", result.stdout)
+        self.assertFalse(self.target.exists())
 
     def test_preview_and_confirmation_do_not_write(self) -> None:
         self.assertEqual(self.run_install("--dry-run").returncode, 0)
@@ -102,6 +167,62 @@ class SharedInstallationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(list(self.target.iterdir()), [existing])
         self.assertEqual(existing.read_text(), "preserve")
+
+    def test_cached_workflows_use_stable_runtime_without_cached_environment(self) -> None:
+        self.assertEqual(self.run_install("--yes").returncode, 0)
+        cache = self.target.parent / "editor cache"
+        shutil.copytree(self.target, cache, ignore=shutil.ignore_patterns(".venv"))
+        for source in (cache / "skills").glob("*/SKILL.md"):
+            wrapper = source.read_text()
+            self.assertIn(f"Stable runtime root: `{self.target}`", wrapper)
+            self.assertIn("Do not execute Python or helpers from the cached copy", wrapper)
+            self.assertNotIn("Resolve the kit root from THIS skill", wrapper)
+        wrapper = (cache / "skills/snowflake-init/SKILL.md").read_text()
+        match = re.search(r"Stable runtime root: `([^`]+)`", wrapper)
+        self.assertIsNotNone(match)
+        assert match is not None
+        runtime = Path(match.group(1))
+        python = runtime / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        project = self.target.parent / "consumer project"
+        project.mkdir()
+        command = [str(python), "-B", str(runtime / "scripts/init_project.py"),
+                   "--target", str(project)]
+        cached_python = cache / python.relative_to(runtime)
+        for state in ("missing", "not executable"):
+            if state == "not executable":
+                cached_python.parent.mkdir(parents=True)
+                cached_python.write_text("invalid cached interpreter\n")
+                cached_python.chmod(0o644)
+            for flag in ("--detect-only", "--dry-run"):
+                with self.subTest(cache_environment=state, flag=flag):
+                    result = subprocess.run([*command, flag], cwd=project,
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(list(project.iterdir()), [])
+        self.assertEqual(cached_python.read_text(), "invalid cached interpreter\n")
+        self.target.rename(self.target.parent / "moved runtime")
+        with self.assertRaises(FileNotFoundError):
+            subprocess.run([*command, "--detect-only"], cwd=project, check=True)
+        self.assertEqual(list(project.iterdir()), [])
+
+    def test_update_migrates_cached_runtime_rules_without_rebuilding_environment(self) -> None:
+        self.assertEqual(self.run_install("--yes").returncode, 0)
+        wrapper = self.target / "skills/snowflake-init/SKILL.md"
+        wrapper.write_text("previous release: resolve Python relative to cached skill\n")
+        manifest = self.target / ".snowflake-kit-manifest.json"
+        records = json.loads(manifest.read_bytes())
+        records["files"]["skills/snowflake-init/SKILL.md"] = hashlib.sha256(
+            wrapper.read_bytes()
+        ).hexdigest()
+        manifest.write_text(json.dumps(records))
+        environment = (self.target / ".venv/pyvenv.cfg").read_bytes()
+        result = self.run_install("--update", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("previous release", wrapper.read_text())
+        result = self.run_install("--update", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Stable runtime root: `{self.target}`", wrapper.read_text())
+        self.assertEqual((self.target / ".venv/pyvenv.cfg").read_bytes(), environment)
 
     def test_personal_shortcuts_preview_apply_and_repeat(self) -> None:
         self.assertEqual(self.run_install("--yes").returncode, 0)
@@ -269,6 +390,14 @@ class SharedInstallationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "No saved"):
                 installer.select_vscode_settings(dry_run=True)
 
+    def test_activation_steps_show_plugin_namespaced_workflow_commands(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            installer.activation_steps(self.target)
+        self.assertIn("/snowflake-data-developer:snowflake-init", output.getvalue())
+        self.assertIn("/snowflake-data-developer:snowflake-dbt-model", output.getvalue())
+        self.assertIn("Some clients expose unqualified names", output.getvalue())
+
     def test_detected_registration_still_requires_write_approval(self) -> None:
         settings = self.target.parent / "settings.json"
         settings.write_text("{}")
@@ -280,6 +409,132 @@ class SharedInstallationTests(unittest.TestCase):
             self.assertEqual(installer.main(), 1)
         self.assertFalse(self.target.exists())
         self.assertEqual(settings.read_text(), "{}")
+
+    def test_interactive_install_offers_vscode_registration(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text('{"editor.fontSize": 14}')
+        for flags in ([], ["--yes"]):
+            with (self.subTest(flags=flags),
+                  patch.object(sys, "argv", ["install_shared", "--target", str(self.target), *flags]),
+                  patch.object(sys.stdin, "isatty", return_value=True),
+                  patch("builtins.input", return_value="yes") as prompt,
+                  patch.object(installer, "discover_vscode_settings", return_value=[settings]),
+                  patch.object(installer, "install", return_value=0) as install,
+                  redirect_stdout(io.StringIO())):
+                self.assertEqual(installer.main(), 0)
+                prompt.assert_called_once()
+                self.assertIn("VS Code", prompt.call_args.args[0])
+                plan = install.call_args.kwargs["registration"]
+                self.assertIsInstance(plan, installer.RegistrationPlan)
+                self.assertEqual(plan.path, settings)
+                self.assertIs(plan.locations[str(self.target)], True)
+                self.assertEqual(settings.read_text(), '{"editor.fontSize": 14}')
+
+    def test_declining_vscode_offer_does_not_inspect_or_change_settings(self) -> None:
+        for answer in ("", "no"):
+            with (self.subTest(answer=answer),
+                  patch.object(sys, "argv", ["install_shared", "--target", str(self.target)]),
+                  patch.object(sys.stdin, "isatty", return_value=True),
+                  patch("builtins.input", return_value=answer),
+                  patch.object(installer, "discover_vscode_settings") as discover,
+                  patch.object(installer, "install", return_value=0) as install,
+                  redirect_stdout(io.StringIO())):
+                self.assertEqual(installer.main(), 0)
+                discover.assert_not_called()
+                self.assertIsNone(install.call_args.kwargs["registration"])
+
+    def test_vscode_offer_is_skipped_for_dry_run_and_unattended_installs(self) -> None:
+        for tty, flags in ((True, ["--dry-run"]), (False, ["--yes"]), (False, [])):
+            with (self.subTest(tty=tty, flags=flags),
+                  patch.object(sys, "argv", ["install_shared", "--target", str(self.target), *flags]),
+                  patch.object(sys.stdin, "isatty", return_value=tty),
+                  patch("builtins.input") as prompt,
+                  patch.object(installer, "discover_vscode_settings") as discover,
+                  patch.object(installer, "install", return_value=0) as install,
+                  redirect_stdout(io.StringIO())):
+                self.assertEqual(installer.main(), 0)
+                prompt.assert_not_called()
+                discover.assert_not_called()
+                self.assertIsNone(install.call_args.kwargs["registration"])
+
+    def test_explicit_vscode_registration_skips_offer(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text("{}")
+        for flags in (["--register-vscode"], ["--vscode-settings", str(settings)]):
+            with (self.subTest(flags=flags),
+                  patch.object(sys, "argv", ["install_shared", "--target", str(self.target), *flags]),
+                  patch.object(sys.stdin, "isatty", return_value=True),
+                  patch("builtins.input") as prompt,
+                  patch.object(installer, "discover_vscode_settings", return_value=[settings]),
+                  patch.object(installer, "install", return_value=0) as install,
+                  redirect_stdout(io.StringIO())):
+                self.assertEqual(installer.main(), 0)
+                prompt.assert_not_called()
+                self.assertEqual(install.call_args.kwargs["registration"].path, settings)
+
+    def test_accepted_offer_still_requires_final_installation_approval(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text("{}")
+        output = io.StringIO()
+        with (patch.object(sys, "argv", ["install_shared", "--target", str(self.target)]),
+              patch.object(sys.stdin, "isatty", return_value=True),
+              patch("builtins.input", side_effect=["yes", "no"]),
+              patch.object(installer, "discover_vscode_settings", return_value=[settings]),
+              patch.object(installer.venv, "EnvBuilder") as builder,
+              redirect_stdout(output)):
+            self.assertEqual(installer.main(), 0)
+        builder.assert_not_called()
+        self.assertIn("VS Code User Settings:", output.getvalue())
+        self.assertIn("Cancelled; nothing written.", output.getvalue())
+        self.assertFalse(self.target.exists())
+        self.assertEqual(settings.read_text(), "{}")
+
+    def test_approved_interactive_offer_installs_and_registers_bundle(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text(json.dumps({
+            "editor.fontSize": 14, "chat.pluginLocations": {"/other/plugin": False},
+        }))
+        with (patch.object(sys, "argv", ["install_shared", "--target", str(self.target)]),
+              patch.object(sys.stdin, "isatty", return_value=True),
+              patch("builtins.input", side_effect=["yes", "yes"]),
+              patch.object(installer, "discover_vscode_settings", return_value=[settings]),
+              redirect_stdout(io.StringIO())):
+            self.assertEqual(installer.main(), 0)
+        config = json.loads(settings.read_text())
+        self.assertEqual(config["editor.fontSize"], 14)
+        self.assertEqual(config["chat.pluginLocations"], {
+            "/other/plugin": False, str(self.target): True,
+        })
+        self.assertTrue((self.target / "plugin.json").is_file())
+        self.assertTrue(self.kit_python().is_file())
+
+    def test_update_and_personal_skill_setup_do_not_offer_registration(self) -> None:
+        for flag, entrypoint in (("--update", "install"),
+                                 ("--personal-skills", "install_personal_skills")):
+            with (self.subTest(flag=flag),
+                  patch.object(sys, "argv", ["install_shared", "--target", str(self.target), flag]),
+                  patch.object(sys.stdin, "isatty", return_value=True),
+                  patch("builtins.input") as prompt,
+                  patch.object(installer, "discover_vscode_settings") as discover,
+                  patch.object(installer, entrypoint, return_value=0),
+                  redirect_stdout(io.StringIO())):
+                self.assertEqual(installer.main(), 0)
+                prompt.assert_not_called()
+                discover.assert_not_called()
+
+    def test_accepted_offer_reports_invalid_settings_without_installing(self) -> None:
+        settings = self.target.parent / "settings.json"
+        settings.write_text('{// JSONC\n}')
+        errors = io.StringIO()
+        with (patch.object(sys, "argv", ["install_shared", "--target", str(self.target)]),
+              patch.object(sys.stdin, "isatty", return_value=True),
+              patch("builtins.input", return_value="yes"),
+              patch.object(installer, "discover_vscode_settings", return_value=[settings]),
+              redirect_stdout(io.StringIO()), redirect_stderr(errors)):
+            self.assertEqual(installer.main(), 1)
+        self.assertIn("strict JSON", errors.getvalue())
+        self.assertFalse(self.target.exists())
+        self.assertEqual(settings.read_text(), '{// JSONC\n}')
 
     def test_registration_preserves_settings_and_disables_only_selected_copy(self) -> None:
         settings = self.target.parent / "settings.json"
@@ -419,9 +674,61 @@ class SharedInstallationTests(unittest.TestCase):
             cwd=self.target.parent, capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        for relative, content in installer.shared_payloads().items():
+        for relative, content in installer.shared_payloads(rebuilt).items():
             self.assertEqual((rebuilt / relative).read_bytes(), content, relative)
         self.assertTrue((rebuilt / ".venv/pyvenv.cfg").is_file())
+
+
+    def test_missing_snowflake_cli_reports_without_blocking_bundle(self) -> None:
+        (self.bin / "snow").unlink()
+        with patch.dict(os.environ, {"PATH": str(self.bin)}):
+            result = self.run_install("--dry-run")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Snowflake CLI (snow) missing", result.stdout)
+            self.assertIn("works without Snowflake CLI", result.stdout)
+            self.assertFalse(self.target.exists())
+            result = self.run_install("--yes", "--no-install")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("automatic installation disabled", result.stdout)
+        self.assertTrue((self.target / "plugin.json").is_file())
+
+    def test_approved_plan_installs_missing_snowflake_cli_with_bundle(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX official-installer path")
+        (self.bin / "snow").unlink()
+        data_directory = self.target.parent / "data"
+        installer_script = (
+            "#!/bin/sh\n"
+            'mkdir -p "$XDG_DATA_HOME/snowflake-cli/bin"\n'
+            "printf '%s\\n' '#!/bin/sh' "
+            "'printf \"%s\\\\n\" \"Snowflake CLI test\"' "
+            '> "$XDG_DATA_HOME/snowflake-cli/bin/snow"\n'
+            'chmod +x "$XDG_DATA_HOME/snowflake-cli/bin/snow"\n'
+        )
+        curl = self.bin / "curl"
+        curl.write_text(
+            f"#!{sys.executable}\n"
+            "import pathlib, sys\n"
+            "output = pathlib.Path(sys.argv[sys.argv.index('--output') + 1])\n"
+            f"output.write_text({installer_script!r})\n"
+        )
+        curl.chmod(0o755)
+        with patch.dict(os.environ, {
+            "PATH": os.pathsep.join([str(self.bin), "/usr/bin", "/bin"]),
+            "XDG_DATA_HOME": str(data_directory),
+        }):
+            result = self.run_install("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("INSTALL", result.stdout)
+        self.assertIn("Prerequisite verified: Snowflake CLI test", result.stdout)
+        self.assertTrue((data_directory / "snowflake-cli/bin/snow").is_file())
+        self.assertTrue((self.target / "plugin.json").is_file())
+
+    def test_found_snowflake_cli_is_verified_during_install(self) -> None:
+        result = self.run_install("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Snowflake CLI found at {self.bin / 'snow'}", result.stdout)
+        self.assertIn("Prerequisite verified: Snowflake CLI 3.0-test", result.stdout)
 
 
 if __name__ == "__main__":

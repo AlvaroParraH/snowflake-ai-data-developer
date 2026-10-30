@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -19,6 +20,17 @@ class SharedMCPTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="snowflake-mcp-test-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name).resolve()
+        self.bin = self.directory / "bin"
+        self.bin.mkdir()
+        snow = self.bin / "snow"
+        snow.write_text(f"#!{sys.executable}\nimport sys\n"
+                        "if sys.argv[1:] == ['--version']: print('Snowflake CLI 3.0-test')\n"
+                        "else: raise SystemExit(2)\n")
+        snow.chmod(0o755)
+        path = patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep
+                                       + os.environ.get("PATH", "")})
+        path.start()
+        self.addCleanup(path.stop)
         self.config = self.directory / "user profile/mcp.json"
         self.arguments = [
             "--mcp-config", str(self.config),

@@ -1,6 +1,6 @@
 ---
 name: snowflake-init
-description: "Detect greenfield versus brownfield Snowflake projects and initialize Bronze ingestion, Silver/Gold dbt and Airflow folders, with an optional context-aware greenfield starter scaffold. Use for new project initialization, existing project layout assessment, or explicitly adding missing folders."
+description: "Detect greenfield versus brownfield Snowflake projects and initialize Bronze ingestion, Silver/Gold dbt and Airflow folders, with an optional context-aware greenfield starter scaffold and opt-in project Python environment using uv. Use for new project initialization, existing project layout assessment, or explicitly adding missing folders."
 argument-hint: "Existing project root to initialize"
 agent: "agent"
 ---
@@ -104,9 +104,55 @@ separate from kit installation.
    `tests/README.md`. Confirm the project facts were rendered accurately and no
    profile, dependency manifest, or credential file was created. A dry run is
    not completed initialization.
+6. **Offer a project Python environment.** After successful initialization
+   (folders only or starter scaffold, including approved brownfield additions),
+   use the question tool to ask: **"Create a project-local Python virtual
+   environment (.venv) using uv?"** Offer **Create with uv** and **Skip**
+   (default). Do not perform this step for a dry run, cancelled initialization,
+   or read-only layout review. This is separate from the shared kit's runtime;
+   never create the project environment inside the kit or use it to run kit helpers.
+
+   - On **Skip**, leave the project's Python setup unchanged.
+   - Before creation, inspect the target `.venv` without following symlinks.
+     If it already exists (including a broken symlink), preserve it and report
+     that no new environment was created; never clear, replace, or repair it.
+   - Check `uv --version`. If unavailable, report the missing prerequisite and
+     link to the [official uv installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
+     Do not install uv automatically or substitute another environment tool.
+     Folder initialization remains complete; environment creation is blocked.
+   - Inspect the project's declared Python requirements/version pins without
+     executing project code. Select an already available compatible Python
+     interpreter; ask if the choice is ambiguous. If none is available, report
+     the blocker without downloading Python or silently ignoring requirements.
+   - Preview the exact interpreter, absolute project `.venv` destination, and
+     command below, replacing both placeholders with quoted absolute paths.
+     Ask for confirmation before running from the project root, and recheck
+     that `.venv` is still absent immediately before execution:
+
+     ```bash
+     uv venv --no-config --offline --no-python-downloads --python "/absolute/path/to/python" "/absolute/path/to/project/.venv"
+     ```
+
+     This creates an environment only. Do not run `uv init`, `uv sync`, or
+     `uv add`, install packages, generate manifests/lockfiles, or change Python
+     pins. Preserve existing project configuration and `.gitignore`; preview
+     and obtain separate approval for any needed `.venv/` ignore entry.
+   - Verify `.venv/pyvenv.cfg` and its executable Python
+     (`.venv/bin/python`, or `.venv/Scripts/python.exe` on Windows). Run that
+     interpreter in isolated mode to confirm `sys.prefix` resolves to the
+     project's `.venv` and differs from `sys.base_prefix`. Report command or
+     verification failures explicitly; do not delete partial output or claim
+     success. Report folder initialization and environment status separately.
+   - Provide the shell-appropriate activation command, for example
+     `source .venv/bin/activate` for bash/zsh or
+     `.venv\Scripts\Activate.ps1` for PowerShell. Explain that the user must
+     run it in their own terminal; creating the environment does not activate
+     it in an already-running shell.
 
 Folder-only mode creates no starter files. The optional greenfield scaffold
-creates only the explicitly previewed starter files. Neither mode creates
+creates only the explicitly previewed starter files. The command separately
+offers an approved, empty project `.venv` using uv; the initializer script
+itself does not create virtual environments. Neither mode creates
 credentials, installs dependencies, executes SQL/dbt, connects to Snowflake,
 stages files, commits, configures remotes, activates MCP, or deploys anything.
 The source type, environment, owner/team, project purpose, domain, sensitivity,

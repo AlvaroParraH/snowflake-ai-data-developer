@@ -1,4 +1,4 @@
-"""Build a shared, relocatable Snowflake agent plugin without changing projects."""
+"""Build a shared Snowflake plugin with a stable runtime outside editor caches."""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import venv
 
-from install_kit import ROOT, check_destination, invalid_json_constant, json_object, payloads, verify_environment
+from install_kit import (ROOT, check_destination, install_snowflake_cli, invalid_json_constant,
+                         json_object, payloads, snowflake_cli_install_plan, verify_environment,
+                         verify_snowflake_cli)
 from setup_mcp import MCPPlan, add_mcp_arguments, check_config_path, plan_mcp
 from installation_state import prepare_manifest, save_manifest, update as update_installation
 
@@ -257,12 +260,15 @@ def activation_steps(target: Path) -> None:
     print("2. Disable the old Snowflake plugin entry, if any; enable only one copy.")
     print("   Existing project-local copies also need separate review to avoid duplicates.")
     print("3. Run Developer: Reload Window.")
-    print("4. Open Chat: Open Customizations and check /snowflake-init and /snowflake-dbt-model.")
+    print("4. Open Chat: Open Customizations and check "
+          "/snowflake-data-developer:snowflake-init and "
+          "/snowflake-data-developer:snowflake-dbt-model.")
+    print("Some clients expose unqualified names; use the plugin-prefixed names if shown.")
     print("Agent plugins must be supported, enabled and permitted by organization policy.")
     print("MCP authentication and actual editor discovery are separate checks.")
 
 
-def shared_payloads() -> dict[Path, bytes]:
+def shared_payloads(target: Path) -> dict[Path, bytes]:
     files = payloads()
     for relative in ("install.sh", "scripts/install_kit.py", "scripts/install_shared.py",
                      "README.md", "ARCHITECTURE.md", "AGENTS.md", "scripts/setup_mcp.py"):
@@ -300,17 +306,29 @@ install dependencies, modify account objects, or deploy.
 
 ## Shared installation path rules
 
-- Resolve the kit root from THIS skill file's location: two directories above
-  `skills/{name}/SKILL.md`. Do not assume it is the current working directory
-  or a fixed home path; plugin managers may relocate the bundle.
+- Stable runtime root: `{target}`
+  This absolute installation path is recorded by the installer, not inferred
+  from the project, home directory, or this skill's location. Plugin managers
+  may cache these guidance files without preserving executable permissions or
+  virtual environments. Do not execute Python or helpers from the cached copy,
+  even if a cached `.venv` exists.
 - Every kit `scripts/`, `docs/`, `.github/`, `install.sh`, or hook reference in
-  the linked workflow resolves inside that kit root. Use the kit's
+  the linked workflow resolves inside that stable runtime root for execution
+  and health checks. The relative guidance links above may be read from the cache.
+  Use the stable runtime's
   `.venv/bin/python` (`.venv/Scripts/python.exe` on Windows) to invoke Python
   helpers using their quoted absolute path, while passing the explicit PROJECT root
   (or project dbt root) as `--target`. Keep the working directory in the project.
-  If the kit environment is missing or broken, report it rather than silently
-  falling back to another interpreter. Project environments remain separate;
-  initialization does not automatically create a project `.venv`.
+  This overrides project-relative `python3 scripts/...` examples in the guidance.
+  Before execution, check that the stable bundle's `plugin.json`,
+  `.snowflake-kit-manifest.json`, `.venv/pyvenv.cfg`, and requested helper exist
+  and that its interpreter is executable. If the stable bundle or environment
+  is missing or broken, stop and report the exact failing path. Do not fall back
+  to another interpreter, search for another installation, repair the cache, or
+  install anything automatically. Reinstall at a stable final path with preview
+  and approval, then reload the plugin if the original bundle was moved.
+  Project environments remain separate; initialization does not automatically
+  create a project `.venv`.
 - Never copy the kit into the project to make a command work. Project files
   are generated only after the workflow's preview and approval.
 - Kit health checks inspect assets in the shared kit, not missing copies in
@@ -340,7 +358,8 @@ install dependencies, modify account objects, or deploy.
 
 
 def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = None,
-            registration: RegistrationPlan | None = None, update: bool = False) -> int:
+            registration: RegistrationPlan | None = None, update: bool = False,
+            no_install: bool = False) -> int:
     if target.is_symlink():
         raise ValueError(f"Refusing symlink target: {target}")
     target = target.absolute()
@@ -355,7 +374,7 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
     if update:
         if mcp is not None or registration is not None:
             raise ValueError("--update cannot change MCP or User Settings; configure them separately.")
-        return update_installation(target, shared_payloads(), "shared", dry_run=dry_run, yes=yes)
+        return update_installation(target, shared_payloads(target), "shared", dry_run=dry_run, yes=yes)
     if target.is_dir() and any(target.iterdir()):
         raise ValueError("Shared plugin target must be empty; use --update for tracked installations "
                          "or choose a fresh directory for an untracked legacy copy.")
@@ -366,7 +385,7 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
             raise ValueError("User Settings must be outside the shared plugin directory.")
         if mcp is not None and registration.path == mcp.path:
             raise ValueError("User Settings and MCP configuration must be different files.")
-    files = shared_payloads()
+    files = shared_payloads(target)
     tracking = prepare_manifest(target, files, "shared")
     for relative in files:
         check_destination(target, relative)
@@ -375,6 +394,23 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
     print(f"Create kit Python environment: {target / '.venv'} using {sys.executable}")
     print("Uses Python's bundled venv/pip; no downloads or third-party packages.")
     print("No project files, credentials or hooks will be changed.")
+    snow = shutil.which("snow")
+    cli_plan = None if snow else snowflake_cli_install_plan()
+    install_cli = (snow is None and not no_install
+                   and cli_plan.startswith("download and run"))
+    if snow:
+        print(f"Prerequisite: Snowflake CLI found at {snow}; will verify with snow --version.")
+    elif install_cli:
+        print(f"Prerequisite: Snowflake CLI (snow) missing; INSTALL {cli_plan}.")
+    elif no_install:
+        print("Prerequisite: Snowflake CLI (snow) missing; automatic installation disabled "
+              "(--no-install). Install it manually using "
+              "https://docs.snowflake.com/en/developer-guide/snowflake-cli/installation/installation.")
+    else:
+        print(f"Prerequisite: Snowflake CLI (snow) missing; {cli_plan}.")
+    if not snow:
+        print("The shared bundle itself works without Snowflake CLI; connection and "
+              "project workflows need it later.")
     if registration is None:
         print("Editor settings: unchanged.")
     else:
@@ -390,9 +426,14 @@ def install(target: Path, *, dry_run: bool, yes: bool, mcp: MCPPlan | None = Non
     if not yes:
         if not sys.stdin.isatty():
             raise ValueError("Non-interactive installation requires --yes; preview with --dry-run.")
-        if input("Apply this plan, including listed User Settings/MCP changes? [y/N] ").strip().lower() not in {"y", "yes"}:
+        if input("Apply this plan, including listed User Settings/MCP changes and tool "
+                 "installations? [y/N] ").strip().lower() not in {"y", "yes"}:
             print("Cancelled; nothing written.")
             return 0
+    if install_cli:
+        snow = install_snowflake_cli()
+    if snow:
+        verify_snowflake_cli(snow)
     written = 0
     try:
         for relative, content in files.items():
@@ -426,6 +467,9 @@ def main() -> int:
     parser.add_argument("--update", action="store_true",
                         help="Back up and update unchanged manifest-owned kit assets only")
     parser.add_argument("--yes", action="store_true")
+    parser.add_argument("--no-install", action="store_true",
+                        help="Prohibit Python bootstrap in the Bash entrypoint and automatic "
+                             "Snowflake CLI installation")
     parser.add_argument("--personal-skills", action="store_true",
                         help="Create short user-level skill entry points to an existing shared bundle")
     parser.add_argument("--skills-dir", type=Path,
@@ -467,12 +511,18 @@ def main() -> int:
         mcp = plan_mcp(args)
         if args.disable_plugin and not (args.register_vscode or args.vscode_settings):
             raise ValueError("--disable-plugin requires VS Code registration.")
+        if (not args.register_vscode and args.vscode_settings is None
+                and not args.dry_run and sys.stdin.isatty()):
+            args.register_vscode = input(
+                "Enable this kit in VS Code? Preview a User Settings update "
+                "(chat.pluginLocations). [y/N] "
+            ).strip().lower() in {"y", "yes"}
         if args.register_vscode and args.vscode_settings is None:
             args.vscode_settings = select_vscode_settings(dry_run=args.dry_run)
         registration = (plan_registration(args.vscode_settings, args.target, args.disable_plugin)
                         if args.vscode_settings is not None else None)
         return install(args.target.expanduser(), dry_run=args.dry_run, yes=args.yes, mcp=mcp,
-                       registration=registration)
+                       registration=registration, no_install=args.no_install)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1

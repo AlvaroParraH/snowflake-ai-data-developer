@@ -14,21 +14,47 @@ bundle's plugin entry to avoid duplicate discovery; this also hides its
 plugin-provided agents. Client discovery requires a separate reload/check.
 
 `bash install.sh --shared` delegates to `scripts/install_shared.py`. It builds
+on Python 3.10+, selected by the Bash entrypoint from `PYTHON`, versioned
+commands, or `python3`. Missing Python can be installed with confirmation
+(or `--yes`) through existing Homebrew on macOS or apt-get/dnf/pacman on Linux.
+An OSTree boot marker blocks automatic Python installation on Atomic hosts;
+missing Python produces manual package-layering/reboot guidance and, when
+available, an existing Fedora Distrobox alternative. No host package manager
+or reboot command runs on that path, even with `--yes`.
+`--no-install`, dry runs, help, and updates never bootstrap Python; without
+Python they stop before launching helpers. Package-manager failures and
+unsuccessful interpreter re-detection are fatal. Fresh shared installations
+audit Snowflake CLI on PATH: a found `snow` is verified, and a missing one
+can be installed through Snowflake's official installer as part of the
+approved plan; `--no-install` disables this and a missing CLI never blocks
+the bundle. The shared builder produces
 an Agent Plugins 1.0 bundle in a dedicated empty directory (by default
 `~/.snowflake-ai-data-developer`). The bundle contains the canonical assets,
-fifteen portable knowledge skill entry points, eleven portable workflow skill
+fifteen knowledge skill entry points, eleven workflow skill
 entry points, and four agents under `com.github.copilot/agents/`.
-Entry points reference canonical guidance and describe relocatable kit-root
-resolution separately from the consumer project's root. Script execution uses
-the shared bundle and writes only approved project outputs.
+Entry points reference canonical guidance and embed the final absolute shared
+installation path as the stable runtime root, separate from the consumer
+project's root. Editor caches may relocate guidance without preserving
+executables; both Python and helpers always resolve to the original bundle,
+not the cached skill location. Missing or broken runtimes stop execution without
+interpreter fallback or cache repair. Script execution writes only approved
+project outputs. Tracked updates regenerate these paths without changing the
+environment; reload the plugin after updating older cache-relative entry points.
 After approval, the builder also creates and verifies a kit-local `.venv/`
 with standard-library `venv` and bundled pip, without network downloads or
 third-party packages. Shared workflow entry points select this interpreter.
 The environment uses existing Python and must be rebuilt if the bundle moves.
-Project environments are separate and are not created by project initialization.
+Project environments are separate. After successful initialization,
+`/snowflake-init` offers an explicitly approved project `.venv` using available
+uv and a compatible local Python, without downloads or dependency installation.
+Existing environments are preserved; the initializer script itself does not
+create environments.
 
 VS Code activation uses a user-level `chat.pluginLocations` setting.
-Optional `--register-vscode` / `--vscode-settings` registration previews an
+Interactive fresh installations offer VS Code registration before the plan
+preview, including with `--yes`; declining leaves editor settings unchanged.
+Dry runs, unattended installs, updates and personal-skill setup do not offer it.
+Accepting the offer or using `--register-vscode` / `--vscode-settings` previews a
 selected existing strict-JSON User Settings file and writes only after the
 installation plan is approved and bundle/environment creation succeeds.
 Unrelated settings and plugins are preserved; old entries are disabled only
