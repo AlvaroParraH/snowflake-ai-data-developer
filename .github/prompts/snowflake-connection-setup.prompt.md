@@ -19,6 +19,34 @@ Read repository instructions first. Do not infer the account, environment,
 role, warehouse, database, schema, authentication method, or connection name.
 Ask at each decision point; never choose silently.
 
+## Question wording and examples
+
+Use the question tool. Include a short explanation and fictional examples
+inside each non-secret input's field description, so the form itself is
+self-contained. Examples demonstrate format, not working accounts or defaults;
+never submit them on the user's behalf. Use existing project conventions and
+user-supplied values instead of invented defaults.
+
+| Input | Suggested field description |
+| --- | --- |
+| Account identifier | Organization and account joined by a hyphen: for example `myorg-account123` or `examplecorp-analytics_dev` (fictional). In `myorg-account123`, `myorg` is the organization and `account123` is the account name. In Snowsight, open the account selector, then **View account details**, to find these values. Enter the identifier only, without `https://` or `.snowflakecomputing.com`; no password or token. |
+| Project root | Existing project folder to configure, for example `/Users/developer/projects/sales-pipeline` on macOS or `C:\projects\sales-pipeline` on Windows. Use your actual project path, not the shared kit folder. |
+| Environment/target | The project environment this profile will serve, for example `dev` or `staging`. This is a local selection label, not a command to create a Snowflake environment. Prefer targets already declared by the project. |
+| Connection name | Local CLI profile label, for example `sales-pipeline-dev` or `analytics-staging`. It selects saved connection settings; it is not the Snowflake account identifier. |
+| Snowflake user | Your Snowflake login name, for example `analyst_demo` or `developer@example.com` (fictional). Use the login provided by your administrator; it may differ from your display name. No password or token. |
+| Role, if needed | An existing role you are authorized to use, for example `ANALYTICS_READER` (fictional). Do not choose an administrator role by default or create a role. If optional, leave unset to use the account's configured default. |
+| Warehouse, if needed | An existing compute warehouse, for example `DEV_ANALYTICS_WH` (fictional), not a database. If optional, leave unset to use configured defaults; this wizard does not create compute. |
+| Database/schema, if needed | Existing database and schema names, for example database `ANALYTICS_DEV` and schema `STAGING` (fictional). Supply these only when needed and authorized; optional values can remain unset. |
+| Authentication method | Browser SSO opens your organization's sign-in flow when connecting; PAT/password entry happens in your own terminal; key-pair setup uses a private key configured locally. Choose the method supported by your administrator. Never paste passwords, tokens, or private keys into the form or chat. |
+
+For account format details, use Snowflake's
+[account identifier documentation](https://docs.snowflake.com/en/user-guide/admin-account-identifier).
+These examples cover the preferred organization-account format; do not guess
+region/cloud suffixes for legacy account locators. If the identifier is unclear,
+ask the user to confirm it from account details or with their administrator.
+Do not request optional role, warehouse, database, or schema values merely
+because examples are listed here.
+
 ## Procedure
 
 0a. **Sanitize the shell environment** (explicit consent). List the *names*
@@ -72,17 +100,13 @@ Ask at each decision point; never choose silently.
      No secret is involved; the browser opens on first use or test.
    - **Programmatic access token (PAT) / password.** Print the Snowsight
      path for generating a PAT (Profile → Settings → Authentication →
-     Programmatic access tokens) and guide generation. Then either:
-     - *Transcript-free (offer first):* the user runs
+     Programmatic access tokens) and guide generation:
+     - *Transcript-free:* the user runs
        `snow connection add --connection-name "<name>"` in their own
-       terminal and completes its interactive prompts there; or
-     - *Chat paste (explicit opt-in):* warn that a pasted secret lands in
-       the chat transcript, then let the user paste the token as a normal
-       reply. Write it only to the user-level `connections.toml` under the
-       chosen connection name with owner-only permissions (0600). Never
-       echo or re-print it, never log it, never place it on a command line
-       (shell history/process lists), and never write it under the project
-       tree.
+       terminal and completes its interactive prompts there. Never request
+       the password or token through chat or the question tool, place it on
+       a command line (shell history/process lists), or write it under the
+       project tree. Credentials remain in the user-level CLI configuration.
    - **Key pair.** Point to the official key-pair documentation; the user
      configures `private_key_file` in their own terminal.
 5. **Validate** (network access; explicit consent). State the selected

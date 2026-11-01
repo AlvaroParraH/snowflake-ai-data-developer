@@ -180,12 +180,19 @@ folders.
 ### Pipeline folder initialization
 
 `/snowflake-init` and `scripts/init_project.py` are a separate opt-in workflow.
-They classify local project signals and preview creation of empty pipeline
-directories. A greenfield-only `--scaffold` option also records project
+They classify local project signals, including populated `infra/snowflake/`,
+and preview creation of empty pipeline and Snowflake infrastructure directories.
+Infrastructure includes `infra/snowflake/governance/{grants,ownership,roles}/`
+and eleven object-type folders under each of
+`infra/snowflake/migrations/{bronze,silver,gold}/`. These organize non-dbt
+changes without prescribing physical schemas, execution order, or migration
+tooling; dbt remains the sole owner of its managed objects.
+A greenfield-only `--scaffold` option also records project
 context and creates project documentation, `.gitignore`, an unimplemented
 source-aware ingestion placeholder, a minimal dbt project with a zero-row
 example model, model documentation and dbt test/macro/snapshot guidance, an
-empty-task Airflow DAG example, and local test guidance. Context fields do
+empty-task Airflow DAG example, local test guidance, and governance/migration
+READMEs. No migration SQL or deployment runner is generated. Context fields do
 not configure Snowflake targets.
 Templates do not install dependencies, create credentials/profiles, connect
 to Snowflake, run dbt, or deploy workloads. Brownfield projects allow only

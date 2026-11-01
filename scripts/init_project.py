@@ -1,4 +1,4 @@
-"""Initialize agreed pipeline folders, with an optional context-aware scaffold."""
+"""Initialize pipeline and Snowflake infrastructure folders with optional starter files."""
 
 from __future__ import annotations
 
@@ -40,6 +40,22 @@ PIPELINE_DIRECTORIES = tuple(map(Path, (
     "pipelines/orchestration/airflow/dags",
 )))
 
+SNOWFLAKE_LAYERS = ("bronze", "silver", "gold")
+SNOWFLAKE_OBJECT_TYPES = (
+    "dynamic_tables", "file_formats", "functions", "pipelines", "policies",
+    "procedures", "stages", "storage_integrations", "streamlits", "tables", "views",
+)
+INFRASTRUCTURE_DIRECTORIES = (
+    Path("infra"),
+    Path("infra/snowflake"),
+    Path("infra/snowflake/governance"),
+    *(Path("infra/snowflake/governance") / area for area in ("grants", "ownership", "roles")),
+    Path("infra/snowflake/migrations"),
+    *(Path("infra/snowflake/migrations") / layer for layer in SNOWFLAKE_LAYERS),
+    *(Path("infra/snowflake/migrations") / layer / kind
+      for layer in SNOWFLAKE_LAYERS for kind in SNOWFLAKE_OBJECT_TYPES),
+)
+
 
 def check_directory(target: Path, relative: Path) -> None:
     current = target
@@ -60,7 +76,9 @@ def detect_project(target: Path) -> dict[str, list[str]]:
             raise ValueError(f"Refusing symlink detection path: {path}")
         if path.is_file():
             signals.append(relative)
-    for relative in ("src", "pipelines", "models", "dags", "bronze", "silver", "gold"):
+    check_directory(target, Path("infra/snowflake"))
+    for relative in ("src", "pipelines", "models", "dags", "bronze", "silver", "gold",
+                     "infra/snowflake"):
         path = target / relative
         if path.is_symlink():
             raise ValueError(f"Refusing symlink detection path: {path}")
@@ -149,7 +167,7 @@ def initialize(target: Path, dry_run: bool, assume_yes: bool, *,
         print(f"Git initialization: skipped; target is already inside parent repository "
               f"{repository[0]} (no nested repository will be created).")
     missing: list[Path] = []
-    directories = (*PIPELINE_DIRECTORIES, *starter_directories)
+    directories = (*PIPELINE_DIRECTORIES, *INFRASTRUCTURE_DIRECTORIES, *starter_directories)
     for relative in directories:
         check_directory(target, relative)
         if not (target / relative).exists() and relative not in missing:

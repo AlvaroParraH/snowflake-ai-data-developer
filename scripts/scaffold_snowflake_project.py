@@ -99,6 +99,8 @@ def starter_files(config: ScaffoldConfig | None = None) -> dict[Path, bytes]:
 - `pipelines/ingestion/bronze/` - source extraction and raw ingestion.
 - `pipelines/dbt/` - Silver transformations and Gold marts.
 - `pipelines/orchestration/airflow/dags/` - orchestration.
+- `infra/snowflake/governance/` - reviewed roles, grants, and ownership changes.
+- `infra/snowflake/migrations/` - non-dbt Snowflake object changes by layer and type.
 - `tests/` - local Python test guidance.
 - `docs/project-profile.md` - reviewed project context.
 
@@ -171,6 +173,39 @@ row-level data here.
 
 TODO: record reviewed decisions and non-secret references.
 """.encode(),
+        Path("infra/snowflake/governance/README.md"): b"""# Snowflake governance
+
+Keep reviewed role definitions in `roles/`, privilege changes in `grants/`,
+and ownership changes in `ownership/`. Use approved names and least privilege;
+these folders do not authorize any account changes.
+
+Confirm the target account/environment, provisioning role, object scope,
+deployment order, approvals, and rollback before applying SQL. Never store
+credentials here. No roles, grants, or ownership changes are generated or run
+by initialization.
+""",
+        Path("infra/snowflake/migrations/README.md"): b"""# Snowflake migrations
+
+Organize reviewed non-dbt object changes under `bronze/`, `silver/`, and
+`gold/`. Each layer contains `dynamic_tables/`, `file_formats/`, `functions/`,
+`pipelines/`, `policies/`, `procedures/`, `stages/`, `storage_integrations/`,
+`streamlits/`, `tables/`, and `views/`.
+
+These are source-code responsibilities, not database/schema names or execution
+order. Use only the areas needed by the project. Account-scoped or shared
+objects, including storage integrations, must have one agreed owner/location;
+do not create a copy per layer merely because the folders exist.
+
+Keep dbt-managed tables, views, and dynamic tables in `pipelines/dbt/`; do not
+manage the same object with both dbt and migrations. This `pipelines/` folder
+holds approved Snowflake-native pipeline definitions, not Python ingestion or
+Airflow DAGs; those remain under the project's root `pipelines/` tree.
+
+Choose the project's migration runner, file naming/versioning, dependency
+order, target environment, approvals, and rollback before adding executable
+SQL. No migration runner, SQL files, deployment, or account access is created
+or performed by initialization. Never store credentials here.
+""",
         Path("pipelines/ingestion/bronze/README.md"): f"""# Bronze ingestion
 
 **Primary source type selected:** {source_hint}.

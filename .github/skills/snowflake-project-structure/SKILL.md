@@ -23,9 +23,11 @@ Snowflake, or deploy Airflow merely because this skill was loaded.
 The kit installer does not create pipeline folders. When explicitly requested,
 use [the initialization prompt](../../prompts/snowflake-init.prompt.md) or the
 installed [local initializer](../../../scripts/init_project.py) to preview and
-create the core pipeline directories. Its default is folders only. For a
+create the core pipeline and Snowflake infrastructure directories. Its default
+is folders only. For a
 confirmed greenfield project, `--scaffold` additionally creates project
-context documentation, `.gitignore`, area guides, a source-aware but
+context documentation, `.gitignore`, area guides (including governance and
+migrations), a source-aware but
 unimplemented Bronze Python placeholder, a minimal dbt project with a
 documented deterministic zero-row staging SQL example, an Airflow DAG with an
 empty task, and local test guidance. Optional context fields are documentation
@@ -40,6 +42,8 @@ snowflake-data-project/
 |-- .env.example
 |-- .gitignore
 |-- pyproject.toml
+|-- docs/
+|   `-- project-profile.md
 |-- pipelines/
 |   |-- ingestion/
 |   |   `-- bronze/
@@ -77,6 +81,28 @@ snowflake-data-project/
 |   |-- test_ingestion.py
 |   `-- test_sales_dag.py
 |-- infra/
+|   `-- snowflake/
+|       |-- governance/
+|       |   |-- grants/
+|       |   |-- ownership/
+|       |   |-- roles/
+|       |   `-- README.md
+|       `-- migrations/
+|           |-- bronze/
+|           |   |-- dynamic_tables/
+|           |   |-- file_formats/
+|           |   |-- functions/
+|           |   |-- pipelines/
+|           |   |-- policies/
+|           |   |-- procedures/
+|           |   |-- stages/
+|           |   |-- storage_integrations/
+|           |   |-- streamlits/
+|           |   |-- tables/
+|           |   `-- views/
+|           |-- silver/  (same object-type subfolders as bronze/)
+|           |-- gold/    (same object-type subfolders as bronze/)
+|           `-- README.md
 `-- .github/
     `-- workflows/
         |-- ci.yml
@@ -85,8 +111,11 @@ snowflake-data-project/
 
 The sales domain, filenames and prefixes are examples; follow approved naming
 conventions. Create only files needed for the requested implementation.
-`packages.yml`, snapshots, macros, infrastructure and workflows are included
+`packages.yml`, snapshots, macros and workflows are included
 when needed, not mandatory empty scaffolding.
+Initialization creates all shown infrastructure directories in both modes;
+the governance/migrations READMEs and project profile are starter-scaffold
+files only. No migration SQL, deployment runner, or account objects are created.
 
 For new Python pipeline components, use `uv` with `pyproject.toml` and commit
 `uv.lock`:
@@ -122,12 +151,25 @@ because this skill was loaded. uv is not needed to read this skill kit.
 | Schedules and task dependencies | `pipelines/orchestration/airflow/dags/` | DAGs coordinate ingestion and dbt; do not duplicate their business logic. |
 | Python and DAG validation | Root `tests/` | Keep application tests separate from dbt SQL tests. |
 | Approved resources, permissions and compute | `infra/` | Do not duplicate resource ownership in ingestion scripts. |
+| Snowflake role, privilege and ownership changes | `infra/snowflake/governance/{roles,grants,ownership}/` | Require least privilege, approved target and explicit deployment approval. |
+| Non-dbt Snowflake object migrations | `infra/snowflake/migrations/<bronze\|silver\|gold>/<object-type>/` | Keep each object under one owner; folder names do not specify execution order. |
 | Validation and deployment automation | `.github/workflows/` | Use environment boundaries and deployment approvals. |
 
 Bronze, Silver and Gold folders organize code responsibilities, not physical
 data. They do not prescribe database/schema names or require three stored
 copies. The expected flow is source -> Bronze -> Silver staging ->
 Silver intermediate -> Gold marts.
+
+Migration object-type folders are `dynamic_tables`, `file_formats`,
+`functions`, `pipelines`, `policies`, `procedures`, `stages`,
+`storage_integrations`, `streamlits`, `tables`, and `views` under each layer.
+They organize only non-dbt changes: do not duplicate dbt-managed tables, views,
+or dynamic tables in migrations. The nested migration `pipelines/` is for
+approved Snowflake-native pipeline definitions, not Python ingestion or Airflow
+DAGs. Account-scoped/shared objects such as storage integrations have one agreed
+owner/location, not automatic copies per layer. Choose the existing project's
+migration tooling, version naming, dependency ordering, approvals and rollback
+before adding executable changes; initialization configures no migration runner.
 
 ## dbt path configuration
 

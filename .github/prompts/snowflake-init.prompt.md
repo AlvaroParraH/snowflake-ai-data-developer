@@ -1,6 +1,6 @@
 ---
 name: snowflake-init
-description: "Detect greenfield versus brownfield Snowflake projects and initialize Bronze ingestion, Silver/Gold dbt and Airflow folders, with an optional context-aware greenfield starter scaffold and opt-in project Python environment using uv. Use for new project initialization, existing project layout assessment, or explicitly adding missing folders."
+description: "Detect greenfield versus brownfield Snowflake projects and initialize pipeline, Snowflake governance and layered migration folders, with an optional context-aware greenfield starter scaffold and opt-in project Python environment using uv. Use for new project initialization, existing project layout assessment, or explicitly adding missing folders."
 argument-hint: "Existing project root to initialize"
 agent: "agent"
 ---
@@ -23,7 +23,7 @@ separate from kit installation.
    Detection considers local Snowflake CLI project files (`snowflake.yml` or
    `snowflake.yaml`), root or canonical dbt project configuration, an existing
    project profile, and populated `src/`, `pipelines/`, `models/`, `dags/`,
-   `bronze/`, `silver/`, or `gold/` directories. Empty folders and installed kit
+   `bronze/`, `silver/`, `gold/`, or `infra/snowflake/` directories. Empty folders and installed kit
    assets, `.venv`, Git metadata, README files and MCP config alone are not
    brownfield signals. Detection is heuristic: no signals does not prove an
    empty directory or absence of a Snowflake project. Do not read credentials,
@@ -45,7 +45,8 @@ separate from kit installation.
 
      Never ask for or store passwords, tokens, private keys, account
      identifiers, connection profiles, or sensitive row-level data. The
-     scaffold adds `.gitignore`, project README/profile, area guides, an
+     scaffold adds `.gitignore`, project README/profile, area guides (including
+     Snowflake governance and migrations), an
      unimplemented source-aware Bronze placeholder, a minimal dbt project with
      a zero-row SQL model and model documentation, an empty Airflow DAG, and
      local test guidance. These are templates only: do not install
@@ -79,7 +80,7 @@ separate from kit installation.
 
    Resolve the script from the target project's root; use its absolute path if
    running from another directory. Do not execute an unreviewed replacement script.
-4. Show the exact target and planned folders. Ask for confirmation before running
+4. Show the exact target and planned pipeline and infrastructure folders. Ask for confirmation before running
    the same command with `--yes` instead of `--dry-run`. Preserve `--scaffold`
    only if the user selected starter files. The plan also initializes
    a local Git repository if the target is not already inside one. For a nested
@@ -87,11 +88,21 @@ separate from kit installation.
    if the user opts out. `git init` creates no commit or remote and stages no files.
    Preserve `--allow-existing` only when explicitly approved. If detection
    changes between preview and execution, stop and review the new signals.
-5. Verify all five leaf directories exist: `pipelines/ingestion/bronze/`,
+5. Verify the pipeline leaf directories exist: `pipelines/ingestion/bronze/`,
    `pipelines/dbt/models/silver/staging/`, `pipelines/dbt/models/silver/intermediate/`,
    `pipelines/dbt/models/gold/marts/`, and `pipelines/orchestration/airflow/dags/`.
+   Also verify `infra/snowflake/governance/{grants,ownership,roles}/` and
+   all eleven object-type subfolders under each of
+   `infra/snowflake/migrations/{bronze,silver,gold}/`: `dynamic_tables`,
+   `file_formats`, `functions`, `pipelines`, `policies`, `procedures`, `stages`,
+   `storage_integrations`, `streamlits`, `tables`, and `views`.
+   Braces here abbreviate separate directories, not literal folder names.
+   Keep dbt-managed objects in dbt, not duplicate migrations; these folders
+   neither select a migration runner nor deploy SQL or grant privileges.
    Report failures explicitly. If `--scaffold` was selected, verify the full
    previewed list: `.gitignore`, `README.md`, `docs/project-profile.md`,
+   `infra/snowflake/governance/README.md`,
+   `infra/snowflake/migrations/README.md`,
    `pipelines/ingestion/bronze/README.md`,
    `pipelines/ingestion/bronze/ingest_template.py`,
    `pipelines/dbt/README.md`, `pipelines/dbt/dbt_project.yml`,

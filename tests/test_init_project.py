@@ -36,11 +36,84 @@ class InitializationTests(unittest.TestCase):
         result = self.run_init("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
         actual = {path.relative_to(self.target) for path in self.target.rglob("*")}
-        self.assertEqual(actual, set(initializer.PIPELINE_DIRECTORIES))
+        self.assertEqual(actual, set(
+            (*initializer.PIPELINE_DIRECTORIES, *initializer.INFRASTRUCTURE_DIRECTORIES)
+        ))
         self.assertTrue(all(path.is_dir() for path in self.target.rglob("*")))
         result = self.run_init("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Already initialized", result.stdout)
+
+    def test_infrastructure_layout_matches_all_layers_and_object_types(self) -> None:
+        result = self.run_init("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = {
+            Path("infra/snowflake/governance") / area
+            for area in ("grants", "ownership", "roles")
+        } | {
+            Path("infra/snowflake/migrations") / layer / kind
+            for layer in ("bronze", "silver", "gold")
+            for kind in (
+                "dynamic_tables", "file_formats", "functions", "pipelines", "policies",
+                "procedures", "stages", "storage_integrations", "streamlits", "tables", "views",
+            )
+        }
+        for relative in expected:
+            self.assertIn(f"MKDIR {relative}", result.stdout)
+        self.assertEqual(list(self.target.iterdir()), [])
+        result = self.run_init("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for relative in expected:
+            self.assertTrue((self.target / relative).is_dir(), relative)
+        self.assertFalse(any(path.is_file() for path in self.target.rglob("*")))
+
+    def test_existing_infrastructure_requires_additive_approval_and_preserves_sql(self) -> None:
+        sql = self.target / "infra/snowflake/migrations/bronze/stages/source.sql"
+        sql.parent.mkdir(parents=True)
+        sql.write_bytes(b"-- Existing migration\r\n")
+        result = self.run_init("--detect-only")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SIGNAL infra/snowflake/ contains files", result.stdout)
+        result = self.run_init("--yes", "--scaffold")
+        self.assertNotEqual(result.returncode, 0)
+        result = self.run_init("--yes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--allow-existing", result.stderr)
+        self.assertFalse((self.target / "pipelines").exists())
+        result = self.run_init("--yes", "--allow-existing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        missing = self.target / "infra/snowflake/migrations/gold/views"
+        missing.rmdir()
+        result = self.run_init("--yes", "--allow-existing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(missing.is_dir())
+        self.assertEqual(sql.read_bytes(), b"-- Existing migration\r\n")
+
+    def test_infrastructure_conflicts_and_symlinks_stop_before_writes(self) -> None:
+        for relative in (
+            "infra",
+            "infra/snowflake",
+            "infra/snowflake/governance/roles",
+            "infra/snowflake/migrations/gold/streamlits",
+        ):
+            for symlink in (False, True):
+                with self.subTest(relative=relative, symlink=symlink):
+                    with tempfile.TemporaryDirectory() as directory:
+                        target = Path(directory) / "project"
+                        target.mkdir()
+                        conflict = target / relative
+                        conflict.parent.mkdir(parents=True, exist_ok=True)
+                        outside = Path(directory) / "outside"
+                        outside.mkdir()
+                        if symlink:
+                            conflict.symlink_to(outside, target_is_directory=True)
+                        else:
+                            conflict.write_text("Preserve\n")
+                        before = set(target.rglob("*"))
+                        with self.assertRaises(ValueError), redirect_stdout(io.StringIO()):
+                            initializer.initialize(target, False, True, no_git=True)
+                        self.assertEqual(set(target.rglob("*")), before)
+                        self.assertEqual(list(outside.iterdir()), [])
 
     def test_greenfield_initializes_git_after_approval(self) -> None:
         preview = self.run_init("--dry-run", no_git=False)
@@ -207,6 +280,14 @@ class InitializationTests(unittest.TestCase):
             (self.target / "pipelines/orchestration/airflow/dags/scaffold_pipeline.py").is_file()
         )
         self.assertTrue((self.target / "tests/README.md").is_file())
+        for area in ("governance", "migrations"):
+            guide = self.target / f"infra/snowflake/{area}/README.md"
+            self.assertTrue(guide.is_file())
+            self.assertIn("credentials", guide.read_text())
+        self.assertIn(
+            "do not\nmanage the same object with both dbt and migrations",
+            (self.target / "infra/snowflake/migrations/README.md").read_text(),
+        )
         for relative in (
             "pipelines/ingestion/bronze/ingest_template.py",
             "pipelines/orchestration/airflow/dags/scaffold_pipeline.py",
@@ -216,7 +297,7 @@ class InitializationTests(unittest.TestCase):
         self.assertFalse((self.target / "pipelines/dbt/profiles.yml").exists())
         self.assertFalse((self.target / "snowflake.yml").exists())
         self.assertFalse((self.target / "uv.lock").exists())
-        self.assertIn("15 starter files", result.stdout)
+        self.assertIn("17 starter files", result.stdout)
 
     def test_scaffold_context_validates_names_and_choices(self) -> None:
         result = self.run_init("--dry-run", "--scaffold", "--project-name", "Invalid-Name")

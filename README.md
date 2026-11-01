@@ -364,6 +364,7 @@ python3 scripts/init_project.py --target /path/to/your-project --scaffold
 ```
 
 The scaffold adds project-context documentation, a `.gitignore`, area guides,
+including Snowflake governance and migration guides,
 an unimplemented source-aware Bronze Python placeholder, a minimal dbt project
 with a documented zero-row SQL example, an empty Airflow DAG, and test guidance.
 Provide optional project context with `--project-name`, `--source-type`,
@@ -376,7 +377,8 @@ the preview and confirm creation (or pass `--yes` for automation).
 Initialization first reports **greenfield** (no existing project signals) or
 **brownfield** (existing local Snowflake/dbt configuration, project profile, or
 populated code folders), with the evidence. Installed kit assets and an empty
-pipeline layout alone do not mark a project as brownfield.
+pipeline/infrastructure layout alone do not mark a project as brownfield.
+Populated `infra/snowflake/` also counts as an existing project signal.
 Use `--detect-only` for a read-only classification. Existing projects require
 explicit `--allow-existing` approval before missing folders can be added;
 `--yes` alone does not bypass that check. The starter scaffold is greenfield-only;
@@ -423,6 +425,40 @@ pipelines/
 |   `-- gold/marts/
 `-- orchestration/airflow/dags/
 ```
+
+It also creates the following Snowflake infrastructure folders alongside
+`pipelines/`:
+
+```text
+infra/snowflake/
+|-- governance/
+|   |-- grants/
+|   |-- ownership/
+|   `-- roles/
+`-- migrations/
+    |-- bronze/
+    |   |-- dynamic_tables/
+    |   |-- file_formats/
+    |   |-- functions/
+    |   |-- pipelines/
+    |   |-- policies/
+    |   |-- procedures/
+    |   |-- stages/
+    |   |-- storage_integrations/
+    |   |-- streamlits/
+    |   |-- tables/
+    |   `-- views/
+    |-- silver/  (same eleven object-type subfolders)
+    `-- gold/    (same eleven object-type subfolders)
+```
+
+The starter scaffold also adds `infra/snowflake/governance/README.md` and
+`infra/snowflake/migrations/README.md`; `docs/project-profile.md` remains the
+project context document. Folder-only mode creates no files. These are source
+folders, not Snowflake database/schema names or a deployment order. Keep
+dbt-managed objects exclusively in dbt and shared/account-scoped resources
+under one agreed owner/location. No migration runner, migration SQL, grants,
+or account changes are generated or executed.
 
 Folder-only initialization creates empty code folders, not a runnable dbt or
 Airflow project. The optional scaffold creates clearly marked example model/DAG

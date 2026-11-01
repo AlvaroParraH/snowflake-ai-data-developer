@@ -4,6 +4,24 @@ Use the project's existing Snowflake conventions and approved tooling first.
 The kit's examples are proposals, not an approved corporate naming standard,
 environment layout, quality threshold, or data contract.
 
+## Wizard questions
+
+When a prompt or skill asks for input, use the question tool and make each
+field understandable without prior Snowflake expertise:
+
+- Give a clear label and a brief explanation of what the value selects.
+- For non-secret text inputs, include one or two realistic, syntactically valid
+  fictional examples in the field description, not only in surrounding prose.
+  Explain the required format and where to find unfamiliar identifiers.
+- Label examples as examples, never actual accounts, approved object names,
+  or defaults. Do not prefill invented values or infer a user's configuration.
+  Existing project conventions and explicitly supplied values take precedence.
+- For choices, explain unfamiliar options and material consequences briefly.
+  Identify optional inputs and how to skip them; retain required approval gates.
+- Never ask for secrets as examples or form input. Direct credential entry to
+  the approved user-terminal or browser flow. Examples must contain no real
+  credentials, private endpoints, or customer data.
+
 ## Skill guidance
 
 Copilot discovers project skills in `.github/skills/`. Each skill's `SKILL.md`

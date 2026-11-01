@@ -264,11 +264,18 @@ offers to comment them out of shell startup files with backups, checks or
 offers to install Snowflake CLI with explicit consent, creates or reuses a
 named connection per project target (suggested `<project>-<target>`), and
 validates it with an approved `snow connection test`. Browser SSO requires
-no secret; for token authentication the wizard offers the transcript-free
-path first (the user runs `snow connection add` in their own terminal). A
-token pasted in chat is written only to the user-level `connections.toml`,
-is never re-printed, and still remains in the chat transcript — prefer the
-terminal path. Credentials never enter project files.
+no secret; for token authentication the user runs `snow connection add` in
+their own terminal. The wizard never requests secrets in chat or forms.
+Credentials never enter project files.
+
+Wizard questions include brief explanations and fictional format examples
+inside the form fields, not just surrounding prose. For instance, an account
+identifier field explains `<organization>-<account_name>` with examples
+`myorg-account123` and `examplecorp-analytics_dev`, and points to Snowsight's
+account selector, **View account details**. Enter the identifier without
+`https://` or `.snowflakecomputing.com`; examples are not working accounts or
+preselected defaults. The same question-writing guidance applies across the
+kit's prompt and skill workflows.
 
 Automatic project selection uses Snowflake CLI's
 `SNOWFLAKE_DEFAULT_CONNECTION_NAME` environment variable in a project `.envrc`.
@@ -581,7 +588,8 @@ per-signal evidence:
   `.venv` and empty code folders do not count.
 - **Brownfield:** `snowflake.yml`, `snowflake.yaml`, root or
   `pipelines/dbt/dbt_project.yml`, `docs/project-profile.md`, or populated
-  `src/`, `pipelines/`, `models/`, `dags/`, `bronze/`, `silver/`, `gold/`.
+  `src/`, `pipelines/`, `models/`, `dags/`, `bronze/`, `silver/`, `gold/`,
+  or `infra/snowflake/`.
 
 Use `--detect-only` to report state without planning or creating folders.
 Detection inspects paths only, not configuration values or account resources.
@@ -613,6 +621,22 @@ pipelines/
 |   `-- gold/marts/
 `-- orchestration/airflow/dags/
 ```
+
+Alongside `pipelines/`, both initialization modes create
+`infra/snowflake/governance/` with `grants/`, `ownership/`, and `roles/`, and
+`infra/snowflake/migrations/` with `bronze/`, `silver/`, and `gold/`.
+Each migration layer contains `dynamic_tables/`, `file_formats/`, `functions/`,
+`pipelines/`, `policies/`, `procedures/`, `stages/`, `storage_integrations/`,
+`streamlits/`, `tables/`, and `views/`. The starter scaffold additionally
+creates governance and migration READMEs; the project profile remains at
+`docs/project-profile.md`. Folder-only mode still creates no files.
+
+Use migrations only for non-dbt-managed objects. Do not define the same object
+in dbt and migrations, or duplicate account-scoped resources across layers.
+Migration `pipelines/` holds Snowflake-native definitions, while ingestion and
+Airflow remain in the root `pipelines/` tree. Directory names do not prescribe
+physical database/schema names or execution order. Initialization does not add
+a migration runner, SQL migrations, roles, grants, or deployed objects.
 
 Missing folders appear as `MKDIR` in the initialization preview. When selected,
 starter files appear as `CREATE`. Existing folders and their
