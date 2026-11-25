@@ -85,7 +85,7 @@ class SharedInstallationTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
         shortcuts = list((home / ".copilot/skills").glob("*/SKILL.md"))
-        self.assertEqual(len(shortcuts), 26)
+        self.assertEqual(len(shortcuts), 27)
         self.assertIn((bundle / "skills/snowflake-init/SKILL.md").as_uri(),
                       (home / ".copilot/skills/snowflake-init/SKILL.md").read_text())
         self.assertEqual(before, {path.relative_to(bundle): path.read_bytes()
@@ -138,7 +138,7 @@ class SharedInstallationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         manifest = json.loads((self.target / "plugin.json").read_text())
         self.assertEqual(manifest["name"], "snowflake-data-developer")
-        self.assertEqual(len(list((self.target / "skills").glob("*/SKILL.md"))), 26)
+        self.assertEqual(len(list((self.target / "skills").glob("*/SKILL.md"))), 27)
         self.assertEqual(len(list((self.target / "com.github.copilot/agents").glob("*.agent.md"))), 4)
         for document in self.target.rglob("*.md"):
             for link in re.findall(r"\[[^\]]+\]\(([^)]+)\)", document.read_text()):
@@ -241,7 +241,7 @@ class SharedInstallationTests(unittest.TestCase):
         self.assertEqual(settings.read_bytes(), before)
         result = self.run_install(*flags, "--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(list(directory.glob("*/SKILL.md"))), 26)
+        self.assertEqual(len(list(directory.glob("*/SKILL.md"))), 27)
         audit = (directory / "snowflake-audit/SKILL.md").read_text()
         self.assertIn("\nname: snowflake-audit\n", audit)
         self.assertIn((self.target / "skills/snowflake-audit/SKILL.md").as_uri(), audit)

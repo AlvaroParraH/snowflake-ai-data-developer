@@ -548,7 +548,7 @@ def install(target: Path, dry_run: bool, assume_yes: bool, no_install: bool = Fa
     print(f"Installed {written} files. "
           "Prerequisites verified. No project dependencies installed or Snowflake connections made.")
     print("Open the target as the VS Code workspace root and reload to check Copilot discovery.")
-    print("Expected: four snowflake-* custom agents, fifteen Snowflake skills, "
+    print("Expected: four snowflake-* custom agents, sixteen Snowflake skills, "
           "eleven workflow prompts, "
           "/snowflake-audit, /snowflake-check, "
           "/snowflake-connection-setup, /snowflake-init, /snowflake-kit-status, "

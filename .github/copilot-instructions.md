@@ -63,6 +63,8 @@ before applying it; do not rely only on its description.
 - Deployment or promotion of Snowflake code and objects across environments:
   [deployment and promotion](skills/snowflake-deployment/SKILL.md); use
   `/snowflake-deploy` for a release review or plan.
+- End-to-end web scraping collection jobs:
+  [scrape, collect, and load](skills/snowflake-scrape/SKILL.md).
 
 ## Safety and scope
 

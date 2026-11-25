@@ -112,10 +112,11 @@ class InstallerTests(unittest.TestCase):
     def test_fresh_install_links_and_idempotency(self) -> None:
         result = self.run_installer("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 15)
+        self.assertEqual(len(list((self.target / ".github/skills").glob("*/SKILL.md"))), 16)
         self.assertTrue(
             (self.target / ".github/skills/snowflake-compute-tagging/SKILL.md").is_file()
         )
+        self.assertTrue((self.target / ".github/skills/snowflake-scrape/SKILL.md").is_file())
         self.assertTrue((self.target / ".github/skills/snowflake-tasks/SKILL.md").is_file())
         self.assertFalse((self.target / "skills").exists())
         self.assertEqual(

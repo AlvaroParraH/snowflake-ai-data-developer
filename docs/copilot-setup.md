@@ -82,7 +82,7 @@ Register the resulting plugin in VS Code User settings using
 See the [shared installation guide](https://github.com/AlvaroParraH/snowflake-ai-data-developer#shared-installation-for-vs-code-copilot)
 for exact configuration, migration, update instructions, and compatibility
 limitations. This mode does not require the project-local files listed below.
-The fifteen knowledge skills and eleven workflow skills load from the shared
+The sixteen knowledge skills and eleven workflow skills load from the shared
 bundle; the four agents are packaged in the Copilot plugin namespace.
 Keep project-specific conventions, profiles, and pipeline code in the project.
 No global always-on instruction, authentication, MCP server, or hook is
@@ -248,11 +248,11 @@ client. Existing project-local MCP configuration is not deleted or migrated.
 | `.github/prompts/<name>.prompt.md` | Workspace task prompt, available by name in Copilot Chat. |
 | `.github/github-app.yml` | Copilot app project instructions; no scripts or automation are configured. |
 
-The fifteen skills cover naming conventions, Bronze profiling, medallion
+The sixteen skills cover naming conventions, Bronze profiling, medallion
 architecture, data quality, data contracts, dbt integration, project
 structure, data governance, compute cost attribution, Snowflake Tasks,
 Streamlit in Snowflake, Cortex AI Functions, Cortex Search and RAG, Semantic
-Views and Cortex Analyst, and deployment/promotion.
+Views and Cortex Analyst, deployment/promotion, and scrape/collect/load.
 Maintain discovery metadata and full guidance together in each skill file;
 there is no separate root-level skill copy.
 
@@ -656,7 +656,7 @@ failures report partial directory/file operations; inspect the target before ret
 Installed assets:
 
 - Four focused Snowflake custom agents under `.github/agents/`.
-- All fifteen full skills under `.github/skills/`, including discovery metadata.
+- All sixteen full skills under `.github/skills/`, including discovery metadata.
 - `.githooks/pre-commit` and `scripts/scan_secrets.py` for staged secret scanning.
 - All eleven `.github/prompts/` workflows; `scripts/init_project.py`,
   `scripts/scaffold_snowflake_project.py`, `scripts/scaffold_dbt_model.py`,

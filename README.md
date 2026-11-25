@@ -43,6 +43,9 @@ establish organization-wide naming policy.
 - [Snowflake deployment and promotion](.github/skills/snowflake-deployment/SKILL.md) —
   tool-agnostic release planning, environment promotion, approvals, and
   rollback safeguards.
+- [Snowflake scrape, collect, and load](.github/skills/snowflake-scrape/SKILL.md) —
+  approval-gated collection, snapshot validation, object-storage publication,
+  and warehouse landing loads.
 
 Existing project conventions take precedence. Confirm names and applicable
 conventions before creating or migrating objects.
@@ -180,7 +183,7 @@ harness. Some clients expose unqualified names; use the plugin-prefixed names
 if shown. Discovery in a running editor is a separate check from building
 the package.
 
-The bundle exposes fifteen guidance skills, eleven workflow skills (the same
+The bundle exposes sixteen guidance skills, eleven workflow skills (the same
 workflow names as the project prompts), and four Copilot agents. Workflow
 skills read the canonical prompt files inside the bundle; no duplicated
 workflow source is maintained. Scoped safety guidance loads with each skill,
@@ -337,7 +340,7 @@ Snowflake CLI then stops an actual run before project writes. A dry run only
 reports prerequisites and planned changes: it downloads, executes and installs
 nothing.
 
-The installer copies all fifteen full skills directly into `.github/skills/`,
+The installer copies all sixteen full skills directly into `.github/skills/`,
 all eleven prompts, the project initializer and starter generators, and their
 supporting documentation.
 It appends a marked guidance block to existing Copilot instructions without
@@ -561,7 +564,7 @@ project instructions live in
 [`.github/copilot-instructions.md`](.github/copilot-instructions.md), with
 native skill discovery under `.github/skills/`. Each skill's `SKILL.md` contains
 both discovery metadata and full guidance; there is no separate root-level
-skill copy. There are fifteen skills, listed above.
+skill copy. There are sixteen skills, listed above.
 
 Workspace custom agents provide focused investigations:
 

@@ -30,7 +30,7 @@ approved plan; `--no-install` disables this and a missing CLI never blocks
 the bundle. The shared builder produces
 an Agent Plugins 1.0 bundle in a dedicated empty directory (by default
 `~/.snowflake-ai-data-developer`). The bundle contains the canonical assets,
-fifteen knowledge skill entry points, eleven workflow skill
+sixteen knowledge skill entry points, eleven workflow skill
 entry points, and four agents under `com.github.copilot/agents/`.
 Entry points reference canonical guidance and embed the final absolute shared
 installation path as the stable runtime root, separate from the consumer
